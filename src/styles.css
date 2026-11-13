@@ -199,6 +199,19 @@ body {
   border-color: rgba(59, 130, 246, 0.3);
 }
 
+.fp-kind-badge[data-kind="excel"] {
+  color: #15803d;
+  background: rgba(22, 163, 74, 0.12);
+  border-color: rgba(22, 163, 74, 0.3);
+}
+
+:root[data-theme="dark"] .fp-kind-badge[data-kind="excel"],
+:root[data-theme-override="dark"] .fp-kind-badge[data-kind="excel"] {
+  color: #4ade80;
+  background: rgba(34, 197, 94, 0.16);
+  border-color: rgba(34, 197, 94, 0.36);
+}
+
 .fp-kind-badge[data-kind="html"] {
   color: #10b981;
   background: rgba(16, 185, 129, 0.12);
@@ -443,6 +456,30 @@ body {
 .fp-search-count {
   font-family: var(--fp-mono);
   padding: 0 4px;
+}
+
+.fp-sheet-name-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 140px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #15803d;
+  background: rgba(22, 163, 74, 0.1);
+  border: 1px solid rgba(22, 163, 74, 0.28);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:root[data-theme="dark"] .fp-sheet-name-pill,
+:root[data-theme-override="dark"] .fp-sheet-name-pill {
+  color: #4ade80;
+  background: rgba(34, 197, 94, 0.14);
+  border-color: rgba(34, 197, 94, 0.32);
 }
 
 .fp-html-status-pill {

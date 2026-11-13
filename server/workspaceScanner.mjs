@@ -16,6 +16,10 @@ const SKIP_DIRS = new Set([
 const SUPPORTED_EXTS = new Map([
   ['.pptx', 'ppt'],
   ['.docx', 'word'],
+  ['.xlsx', 'excel'],
+  ['.xls', 'excel'],
+  ['.csv', 'excel'],
+  ['.tsv', 'excel'],
   ['.pdf', 'pdf'],
   ['.mp4', 'mp4'],
   ['.html', 'html'],
@@ -27,7 +31,7 @@ const DEFAULT_LIMIT = 200;
 const HARD_COLLECT_CAP = 2000;
 
 /**
- * 递归扫描工作区中的可预览文件（.pptx / .docx / .pdf / .html / .htm）。
+ * 递归扫描工作区中的可预览文件（.pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html / .htm）。
  * @param {string[] | string} [workspaceUris]
  * @param {object} [options]
  * @param {number} [options.maxDepth] 最大递归深度（默认 5）
@@ -36,7 +40,7 @@ const HARD_COLLECT_CAP = 2000;
  *   path: string,
  *   name: string,
  *   ext: string,
- *   kind: 'ppt' | 'word' | 'html' | 'pdf',
+ *   kind: 'ppt' | 'word' | 'excel' | 'html' | 'pdf' | 'mp4',
  *   size: number,
  *   mtimeMs: number,
  *   relPath: string,

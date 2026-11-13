@@ -11,6 +11,7 @@ import { registerHooks } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
+import * as XLSX from 'xlsx';
 
 // 注册轻量 sidecar_sdk mock，模拟 Antigravity 宿主注入的 SidecarApp 与 Response 精确行为
 registerHooks({
@@ -217,6 +218,10 @@ describe('pathSecurity 路径安全与格式分类测试', () => {
 
     writeFileSync(join(workspaceDir, 'deck.pptx'), Buffer.from('PK\x03\x04pptx'));
     writeFileSync(join(workspaceDir, 'report.DOCX'), Buffer.from('PK\x03\x04docx'));
+    writeFileSync(join(workspaceDir, 'sheet.XLSX'), Buffer.from('PK\x03\x04xlsx'));
+    writeFileSync(join(workspaceDir, 'legacy.xls'), Buffer.from('\xD0\xCF\x11\xE0xls'));
+    writeFileSync(join(workspaceDir, 'data.csv'), 'a,b\n1,2\n');
+    writeFileSync(join(workspaceDir, 'table.TSV'), 'a\tb\n1\t2\n');
     writeFileSync(join(workspaceDir, 'manual.PDF'), Buffer.from('%PDF-1.7\n'));
     writeFileSync(join(workspaceDir, 'page.html'), '<h1>Hello</h1>');
     writeFileSync(join(workspaceDir, 'legacy.doc'), 'legacy doc');
@@ -292,7 +297,15 @@ describe('pathSecurity 路径安全与格式分类测试', () => {
 
     assert.throws(
       () => validateFilePath(join(workspaceDir, 'notes.txt'), { allowedRootsOverride: [workspaceDir] }),
-      (err) => err instanceof HttpError && err.status === 415 && err.message.includes('.pdf'),
+      (err) => (
+        err instanceof HttpError
+        && err.status === 415
+        && err.message.includes('.pdf')
+        && err.message.includes('.xlsx')
+        && err.message.includes('.xls')
+        && err.message.includes('.csv')
+        && err.message.includes('.tsv')
+      ),
     );
   });
 
@@ -304,6 +317,22 @@ describe('pathSecurity 路径安全与格式分类测试', () => {
     const docx = validateFilePath(join(workspaceDir, 'report.DOCX'), { allowedRootsOverride: [workspaceDir] });
     assert.equal(docx.kind, 'word');
     assert.equal(docx.ext, '.docx');
+
+    const xlsx = validateFilePath(join(workspaceDir, 'sheet.XLSX'), { allowedRootsOverride: [workspaceDir] });
+    assert.equal(xlsx.kind, 'excel');
+    assert.equal(xlsx.ext, '.xlsx');
+
+    const xls = validateFilePath(join(workspaceDir, 'legacy.xls'), { allowedRootsOverride: [workspaceDir] });
+    assert.equal(xls.kind, 'excel');
+    assert.equal(xls.ext, '.xls');
+
+    const csv = validateFilePath(join(workspaceDir, 'data.csv'), { allowedRootsOverride: [workspaceDir] });
+    assert.equal(csv.kind, 'excel');
+    assert.equal(csv.ext, '.csv');
+
+    const tsv = validateFilePath(join(workspaceDir, 'table.TSV'), { allowedRootsOverride: [workspaceDir] });
+    assert.equal(tsv.kind, 'excel');
+    assert.equal(tsv.ext, '.tsv');
 
     const pdf = validateFilePath(join(workspaceDir, 'manual.PDF'), { allowedRootsOverride: [workspaceDir] });
     assert.equal(pdf.kind, 'pdf');
@@ -504,6 +533,8 @@ describe('workspaceScanner 工作区扫描测试', () => {
 
     writeFileSync(join(tempRoot, 'docs', 'a.docx'), 'docx');
     writeFileSync(join(tempRoot, 'docs', 'sub', 'b.pptx'), 'pptx');
+    writeFileSync(join(tempRoot, 'docs', 'budget.xlsx'), 'xlsx');
+    writeFileSync(join(tempRoot, 'docs', 'data.csv'), 'col1,col2\n1,2\n');
     writeFileSync(join(tempRoot, 'docs', 'manual.pdf'), '%PDF-1.7');
     writeFileSync(join(tempRoot, 'index.htm'), '<h1>hi</h1>');
     writeFileSync(join(tempRoot, 'node_modules', 'pkg', 'ignored.html'), '<p>ignore</p>');
@@ -524,10 +555,17 @@ describe('workspaceScanner 工作区扫描测试', () => {
     assert.deepEqual(relPaths, [
       'd1/d2/d3/d4/d5/depth5.pptx',
       'docs/a.docx',
+      'docs/budget.xlsx',
+      'docs/data.csv',
       'docs/manual.pdf',
       'docs/sub/b.pptx',
       'index.htm',
     ]);
+
+    const xlsxItem = files.find((f) => f.relPath === 'docs/budget.xlsx');
+    const csvItem = files.find((f) => f.relPath === 'docs/data.csv');
+    assert.equal(xlsxItem?.kind, 'excel');
+    assert.equal(csvItem?.kind, 'excel');
   });
 });
 
@@ -556,6 +594,8 @@ describe('SidecarApp HTTP 路由集成测试', () => {
     writeFileSync(join(assetsDir, 'logo.svg'), '<svg></svg>');
 
     writeFileSync(join(workspaceDir, 'demo.pptx'), Buffer.from([1, 2, 3, 4]));
+    writeFileSync(join(workspaceDir, 'demo.xlsx'), Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x05]));
+    writeFileSync(join(workspaceDir, 'demo.csv'), '姓名,分数\n张三,95\n');
     writeFileSync(join(workspaceDir, 'demo.html'), '<html><body>Demo</body></html>');
     writeFileSync(join(workspaceDir, 'demo.pdf'), Buffer.from('%PDF-1.7-MOCK-BODY'));
     writeFileSync(join(workspaceDir, 'old.doc'), 'old');
@@ -642,7 +682,45 @@ describe('SidecarApp HTTP 路由集成测试', () => {
     });
     assert.equal(listRes.status, 200);
     const listJson = await listRes.json();
-    assert.equal(listJson.files.length, 3);
+    assert.equal(listJson.files.length, 5);
+
+    const xlsxStatRes = await fetch(`${baseUrl}/api/fs/stat`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ file: join(workspaceDir, 'demo.xlsx'), workspaceUris: [workspaceDir] }),
+    });
+    assert.equal(xlsxStatRes.status, 200);
+    const xlsxStatJson = await xlsxStatRes.json();
+    assert.equal(xlsxStatJson.kind, 'excel');
+    assert.equal(xlsxStatJson.ext, '.xlsx');
+    assert.equal(xlsxStatJson.size, 5);
+
+    const xlsxReadRes = await fetch(`${baseUrl}/api/fs/read`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ file: join(workspaceDir, 'demo.xlsx'), workspaceUris: [workspaceDir] }),
+    });
+    assert.equal(xlsxReadRes.status, 200);
+    assert.equal(xlsxReadRes.headers.get('content-type'), 'application/octet-stream');
+    assert.deepEqual(Buffer.from(await xlsxReadRes.arrayBuffer()), Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x05]));
+
+    const csvStatRes = await fetch(`${baseUrl}/api/fs/stat`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ file: join(workspaceDir, 'demo.csv'), workspaceUris: [workspaceDir] }),
+    });
+    assert.equal(csvStatRes.status, 200);
+    const csvStatJson = await csvStatRes.json();
+    assert.equal(csvStatJson.kind, 'excel');
+    assert.equal(csvStatJson.ext, '.csv');
+
+    const csvReadRes = await fetch(`${baseUrl}/api/fs/read`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ file: join(workspaceDir, 'demo.csv'), workspaceUris: [workspaceDir] }),
+    });
+    assert.equal(csvReadRes.status, 200);
+    assert.equal(await csvReadRes.text(), '姓名,分数\n张三,95\n');
 
     const mountRes = await fetch(`${baseUrl}/api/html/mount`, {
       method: 'POST',
@@ -715,5 +793,57 @@ describe('SidecarApp HTTP 路由集成测试', () => {
     assert.equal(docStat.status, 415);
     const docErr = await docStat.json();
     assert.match(docErr.error, /\.docx/);
+  });
+});
+
+describe('xlsx 内存工作簿多工作表、合并单元格与公式无损读写测试', () => {
+  it('生成真实内存 .xlsx buffer 并无损读回多 Sheet、!merges 合并区域与公式单元格', () => {
+    const wb = XLSX.utils.book_new();
+
+    const summarySheet = XLSX.utils.aoa_to_sheet([
+      ['季度财务汇总报表', null, null],
+      ['项目', 'Q1', 'Q2'],
+      ['营收', 100, 200],
+      ['合计', null, null],
+    ]);
+    summarySheet['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 2 } },
+    ];
+    summarySheet['B4'] = { t: 'n', v: 300, f: 'SUM(B3:C3)' };
+
+    const detailSheet = XLSX.utils.aoa_to_sheet([
+      ['部门', '负责人', '预算'],
+      ['研发部', '张伟', 180],
+      ['产品部', '李娜', 120],
+    ]);
+
+    XLSX.utils.book_append_sheet(wb, summarySheet, '汇总');
+    XLSX.utils.book_append_sheet(wb, detailSheet, '明细');
+
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    assert.ok(Buffer.isBuffer(buffer) && buffer.length > 0);
+
+    const parsed = XLSX.read(new Uint8Array(buffer), {
+      type: 'array',
+      cellFormula: true,
+      cellDates: true,
+      cellNF: true,
+      cellStyles: true,
+    });
+
+    assert.deepEqual(parsed.SheetNames, ['汇总', '明细']);
+
+    const parsedSummary = parsed.Sheets['汇总'];
+    assert.equal(parsedSummary['A1']?.v, '季度财务汇总报表');
+    assert.deepEqual(parsedSummary['!merges'], [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 2 } },
+    ]);
+    assert.equal(parsedSummary['B4']?.f, 'SUM(B3:C3)');
+    assert.equal(parsedSummary['B4']?.v, 300);
+
+    const parsedDetail = parsed.Sheets['明细'];
+    assert.equal(parsedDetail['A2']?.v, '研发部');
+    assert.equal(parsedDetail['B2']?.v, '张伟');
+    assert.equal(parsedDetail['C3']?.v, 120);
   });
 });

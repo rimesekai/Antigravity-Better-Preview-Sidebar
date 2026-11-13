@@ -71,6 +71,13 @@ function stepZoom(current: number, direction: -1 | 1): number {
 function formatKindBadge(kind: PreviewKind, ext: string): string {
   if (kind === 'ppt') return 'PPTX';
   if (kind === 'word') return 'DOCX';
+  if (kind === 'excel') {
+    const normalized = ext.toLowerCase();
+    if (normalized === '.csv') return 'CSV';
+    if (normalized === '.tsv') return 'TSV';
+    if (normalized === '.xls') return 'XLS';
+    return 'XLSX';
+  }
   if (kind === 'pdf') return 'PDF';
   if (kind === 'mp4') return 'MP4';
   return ext.toLowerCase() === '.htm' ? 'HTM' : 'HTML';
@@ -268,6 +275,10 @@ export function createToolbar(
 
   pptPageCluster.append(prevPageBtn, pageInput, pageTotalEl, nextPageBtn);
 
+  const sheetNamePill = document.createElement('span');
+  sheetNamePill.className = 'fp-sheet-name-pill';
+  sheetNamePill.hidden = true;
+
   // PPT 缩放控件
   const pptZoomCluster = document.createElement('div');
   pptZoomCluster.className = 'fp-cluster';
@@ -375,6 +386,7 @@ export function createToolbar(
     pptLayoutSeg,
     pptThumbBtn,
     pptPageCluster,
+    sheetNamePill,
     pptZoomCluster,
     pptSearchCluster,
   );
@@ -464,21 +476,48 @@ export function createToolbar(
 
   function updatePagedControls(preview: PreviewStateInfo | null, kind: PreviewKind): void {
     const isPdf = kind === 'pdf';
+    const isExcel = kind === 'excel';
 
-    pptLayoutSeg.hidden = false;
-    pptThumbBtn.hidden = false;
+    pptLayoutSeg.hidden = isExcel;
+    pptThumbBtn.hidden = isExcel;
     pptPageCluster.hidden = false;
     pptZoomCluster.hidden = false;
     pptSearchCluster.hidden = false;
 
-    if (isPdf) {
+    if (isExcel) {
+      prevPageBtn.title = '上一工作表';
+      nextPageBtn.title = '下一工作表';
+      pageInput.setAttribute('aria-label', '当前工作表序号');
+      pptFitBtn.title = '重置为标准视图';
+      searchInput.placeholder = '搜索表格内容 (回车)';
+      searchInput.setAttribute('aria-label', '搜索表格内容');
+    } else if (isPdf) {
+      prevPageBtn.title = '上一页';
+      nextPageBtn.title = '下一页';
+      pageInput.setAttribute('aria-label', '当前页码');
+      pptFitBtn.title = '自适应侧边栏宽度';
       pptThumbBtn.title = '切换页面缩略图栏';
       searchInput.placeholder = '搜索 PDF 文本 (回车)';
       searchInput.setAttribute('aria-label', '搜索 PDF 文本');
     } else {
+      prevPageBtn.title = '上一页';
+      nextPageBtn.title = '下一页';
+      pageInput.setAttribute('aria-label', '当前页码');
+      pptFitBtn.title = '自适应侧边栏宽度';
       pptThumbBtn.title = '切换幻灯片缩略图栏';
       searchInput.placeholder = '搜索幻灯片 (回车)';
       searchInput.setAttribute('aria-label', '搜索幻灯片文本');
+    }
+
+    const activeSheet = preview?.activeSheet?.trim();
+    if (isExcel && activeSheet) {
+      sheetNamePill.hidden = false;
+      sheetNamePill.textContent = activeSheet;
+      sheetNamePill.title = `当前工作表：${activeSheet}`;
+    } else {
+      sheetNamePill.hidden = true;
+      sheetNamePill.textContent = '';
+      sheetNamePill.title = '';
     }
 
     const page = preview?.page ?? 1;
@@ -605,7 +644,7 @@ export function createToolbar(
       return;
     }
 
-    const isPaged = file.kind === 'ppt' || file.kind === 'pdf';
+    const isPaged = file.kind === 'ppt' || file.kind === 'pdf' || file.kind === 'excel';
     pptGroup.hidden = !isPaged;
     wordGroup.hidden = file.kind !== 'word';
     htmlGroup.hidden = file.kind !== 'html';

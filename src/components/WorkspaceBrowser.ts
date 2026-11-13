@@ -50,6 +50,13 @@ function formatModifiedTime(mtimeMs: number): string {
 function getKindShortLabel(kind: PreviewKind, ext: string): string {
   if (kind === 'ppt') return 'PPTX';
   if (kind === 'word') return 'DOCX';
+  if (kind === 'excel') {
+    const normalized = ext.toLowerCase();
+    if (normalized === '.csv') return 'CSV';
+    if (normalized === '.tsv') return 'TSV';
+    if (normalized === '.xls') return 'XLS';
+    return 'XLSX';
+  }
   if (kind === 'pdf') return 'PDF';
   if (kind === 'mp4') return 'MP4';
   return ext.toLowerCase() === '.htm' ? 'HTM' : 'HTML';
@@ -96,7 +103,7 @@ export function createWorkspaceBrowser(
   heroTitle.textContent = 'File Preview';
   const heroSub = document.createElement('p');
   heroSub.className = 'fp-hero-subtitle';
-  heroSub.textContent = '侧边栏本地文档高保真预览 · 支持 .pptx / .docx / .pdf / .mp4 / .html';
+  heroSub.textContent = '侧边栏本地文档高保真预览 · 支持 .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html';
   heroTitleBox.append(heroTitle, heroSub);
 
   heroBrand.append(logoImg, heroTitleBox);
@@ -150,7 +157,7 @@ export function createWorkspaceBrowser(
 
   const hiddenFileInput = document.createElement('input');
   hiddenFileInput.type = 'file';
-  hiddenFileInput.accept = '.pptx,.docx,.pdf,.mp4,.html,.htm';
+  hiddenFileInput.accept = '.pptx,.docx,.xlsx,.xls,.csv,.tsv,.pdf,.mp4,.html,.htm';
   hiddenFileInput.hidden = true;
   hiddenFileInput.addEventListener('change', () => {
     const picked = hiddenFileInput.files?.[0];
@@ -168,7 +175,7 @@ export function createWorkspaceBrowser(
 
   const dragTip = document.createElement('span');
   dragTip.className = 'fp-drag-tip';
-  dragTip.textContent = '或直接拖拽 .pptx / .docx / .pdf / .mp4 / .html 到此窗口';
+  dragTip.textContent = '或直接拖拽 .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html 到此窗口';
 
   localActionsRow.append(hiddenFileInput, pickFileBtn, dragTip);
   quickOpenCard.append(pathForm, localActionsRow);
@@ -187,6 +194,7 @@ export function createWorkspaceBrowser(
     { key: 'all', label: '全部' },
     { key: 'ppt', label: 'PPT' },
     { key: 'word', label: 'Word' },
+    { key: 'excel', label: 'Excel' },
     { key: 'pdf', label: 'PDF' },
     { key: 'mp4', label: 'MP4' },
     { key: 'html', label: 'HTML' },
@@ -240,6 +248,7 @@ export function createWorkspaceBrowser(
       all: latestState.files.length,
       ppt: 0,
       word: 0,
+      excel: 0,
       pdf: 0,
       mp4: 0,
       html: 0,
@@ -292,7 +301,7 @@ export function createWorkspaceBrowser(
       const emptyEl = document.createElement('div');
       emptyEl.className = 'fp-list-empty';
       if (latestState.files.length === 0) {
-        emptyEl.textContent = '当前工作区暂未扫描到 .pptx / .docx / .pdf / .mp4 / .html 文件，可使用上方路径输入或直接拖拽文件打开。';
+        emptyEl.textContent = '当前工作区暂未扫描到 .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html 文件，可使用上方路径输入或直接拖拽文件打开。';
       } else {
         emptyEl.textContent = '没有符合当前筛选条件的文件。';
       }

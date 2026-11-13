@@ -713,3 +713,372 @@
   max-width: 440px;
   text-align: center;
 }
+
+/* ==========================================================================
+ * Excel Renderer (.fp-excel-*)
+ * ========================================================================== */
+
+.fp-excel-root {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--fp-bg);
+  color: var(--fp-fg);
+  font-family: var(--fp-font);
+}
+
+.fp-excel-formulabar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  min-height: 36px;
+  background: var(--fp-card);
+  border-bottom: 1px solid var(--fp-border);
+}
+
+.fp-excel-formulabar-left {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fp-excel-cell-ref {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: var(--fp-secondary);
+  border: 1px solid var(--fp-border);
+  color: var(--fp-fg);
+  font-family: var(--fp-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.fp-excel-sheet-stats {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--fp-muted);
+  border: 1px solid var(--fp-border);
+  color: var(--fp-muted-fg);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.fp-excel-formula-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 24px;
+  line-height: 22px;
+  padding: 0 8px;
+  border-radius: 5px;
+  border: 1px solid var(--fp-border);
+  background: var(--fp-bg);
+  color: var(--fp-fg);
+  font-family: var(--fp-mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.fp-excel-formula-value.is-placeholder {
+  color: var(--fp-muted-fg);
+  font-family: var(--fp-font);
+}
+
+.fp-excel-copy-btn {
+  flex: 0 0 auto;
+  height: 24px;
+  padding: 0 9px;
+  font-size: 11.5px;
+}
+
+.fp-excel-copy-btn.is-copied {
+  border-color: var(--fp-primary);
+  color: var(--fp-primary);
+  background: var(--fp-active-soft);
+}
+
+.fp-excel-truncation-banner {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(245, 158, 11, 0.12);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.32);
+  color: #92400e;
+  font-size: 11.5px;
+}
+
+.fp-excel-truncation-text {
+  min-width: 0;
+}
+
+.fp-excel-load-all-btn {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11.5px;
+}
+
+.fp-excel-viewport {
+  --fp-excel-zoom: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+  background: var(--fp-bg);
+}
+
+.fp-excel-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  background: var(--fp-card);
+  color: var(--fp-fg);
+  font-family: var(--fp-font);
+  font-size: calc(12px * var(--fp-excel-zoom, 1));
+  line-height: 1.35;
+}
+
+.fp-excel-corner {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 4;
+  height: calc(24px * var(--fp-excel-zoom, 1));
+  padding: 0;
+  background: var(--fp-secondary);
+  border-right: 1px solid var(--fp-border);
+  border-bottom: 1px solid var(--fp-border);
+}
+
+.fp-excel-col-header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: calc(24px * var(--fp-excel-zoom, 1));
+  padding: 0 calc(6px * var(--fp-excel-zoom, 1));
+  background: var(--fp-muted);
+  color: var(--fp-muted-fg);
+  border-right: 1px solid var(--fp-border);
+  border-bottom: 1px solid var(--fp-border);
+  font-family: var(--fp-mono);
+  font-size: calc(11px * var(--fp-excel-zoom, 1));
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+
+.fp-excel-row-header {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  height: calc(24px * var(--fp-excel-zoom, 1));
+  padding: 0 calc(6px * var(--fp-excel-zoom, 1));
+  background: var(--fp-muted);
+  color: var(--fp-muted-fg);
+  border-right: 1px solid var(--fp-border);
+  border-bottom: 1px solid var(--fp-border);
+  font-family: var(--fp-mono);
+  font-size: calc(11px * var(--fp-excel-zoom, 1));
+  font-weight: 500;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.fp-excel-col-header.is-active-header,
+.fp-excel-row-header.is-active-header {
+  background: var(--fp-active-soft);
+  color: var(--fp-primary);
+  font-weight: 700;
+}
+
+.fp-excel-cell {
+  position: relative;
+  height: calc(24px * var(--fp-excel-zoom, 1));
+  padding: calc(3px * var(--fp-excel-zoom, 1)) calc(8px * var(--fp-excel-zoom, 1));
+  border-right: 1px solid var(--fp-border);
+  border-bottom: 1px solid var(--fp-border);
+  background: var(--fp-card);
+  color: var(--fp-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  cursor: cell;
+}
+
+.fp-excel-cell:hover {
+  background: var(--fp-hover);
+}
+
+.fp-excel-cell-merged {
+  background: color-mix(in srgb, var(--fp-card) 94%, var(--fp-secondary));
+}
+
+.fp-excel-cell-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.fp-excel-cell-bool {
+  text-align: center;
+  font-family: var(--fp-mono);
+  font-size: calc(11px * var(--fp-excel-zoom, 1));
+  color: var(--fp-primary);
+}
+
+.fp-excel-cell-err {
+  color: var(--fp-error);
+  font-family: var(--fp-mono);
+}
+
+.fp-excel-cell-formula::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 6px 6px 0;
+  border-color: transparent #15803d transparent transparent;
+  pointer-events: none;
+}
+
+.fp-excel-cell.is-selected {
+  background: var(--fp-active-soft);
+  outline: 2px solid var(--fp-primary);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.fp-excel-cell.fp-excel-search-hit {
+  background: rgba(250, 204, 21, 0.34);
+}
+
+.fp-excel-cell.fp-excel-search-hit.is-active {
+  background: rgba(26, 115, 232, 0.24);
+  outline: 2px solid var(--fp-primary);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.fp-excel-empty {
+  height: 100%;
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.fp-excel-empty-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--fp-fg);
+}
+
+.fp-excel-empty-desc {
+  font-size: 12px;
+  color: var(--fp-muted-fg);
+}
+
+.fp-excel-sheetbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  background: var(--fp-card);
+  border-top: 1px solid var(--fp-border);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.fp-excel-sheetbar[hidden] {
+  display: none !important;
+}
+
+.fp-excel-sheet-tab {
+  appearance: none;
+  flex: 0 0 auto;
+  height: 24px;
+  max-width: 180px;
+  padding: 0 10px;
+  border-radius: 5px;
+  border: 1px solid var(--fp-border);
+  background: var(--fp-muted);
+  color: var(--fp-muted-fg);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.fp-excel-sheet-tab:hover {
+  background: var(--fp-hover);
+  color: var(--fp-fg);
+}
+
+.fp-excel-sheet-tab.is-active {
+  background: var(--fp-active-soft);
+  border-color: var(--fp-primary);
+  color: var(--fp-primary);
+  font-weight: 600;
+}
+
+:root[data-theme="dark"] .fp-excel-truncation-banner,
+:root[data-theme-override="dark"] .fp-excel-truncation-banner {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.16);
+  border-bottom-color: rgba(245, 158, 11, 0.36);
+}
+
+:root[data-theme="dark"] .fp-excel-cell-formula::after,
+:root[data-theme-override="dark"] .fp-excel-cell-formula::after {
+  border-color: transparent #4ade80 transparent transparent;
+}
+
+:root[data-theme="dark"] .fp-excel-cell.fp-excel-search-hit,
+:root[data-theme-override="dark"] .fp-excel-cell.fp-excel-search-hit {
+  background: rgba(250, 204, 21, 0.24);
+}
+
+:root[data-theme="dark"] .fp-excel-cell.fp-excel-search-hit.is-active,
+:root[data-theme-override="dark"] .fp-excel-cell.fp-excel-search-hit.is-active {
+  background: rgba(59, 130, 246, 0.32);
+}

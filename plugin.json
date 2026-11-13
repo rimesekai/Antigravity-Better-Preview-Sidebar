@@ -2,10 +2,11 @@
   "name": "file-preview",
   "displayName": "File Preview",
   "version": "0.1.0",
-  "description": "在 Antigravity 桌面端侧边栏直接打开并高保真预览本地 PPT（.pptx）、Word（.docx）、PDF（.pdf，支持 >20MB 大文件流式预览）、MP4（.mp4，支持 >20MB 视频流式播放）与 HTML（.html/.htm）文件。",
+  "description": "在 Antigravity 桌面端侧边栏直接打开并高保真预览本地 PPT（.pptx）、Word（.docx）、Excel（.xlsx / .xls / .csv / .tsv，支持多 Sheet 工作表切换、公式与合并单元格展示及搜索）、PDF（.pdf，支持 >20MB 大文件流式预览）、MP4（.mp4，支持 >20MB 视频流式播放）与 HTML（.html/.htm）文件。",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [
-    "在侧边栏打开并预览当前工作区中的 .pptx 演示文稿或 .docx 文档",
+    "在侧边栏打开并预览当前工作区中的 .pptx 演示文稿、.docx 文档或 .xlsx 表格",
+    "在 File Preview 中查看多工作表 Excel（.xlsx / .xls / .csv / .tsv），切换 Sheet 并查看公式与合并单元格",
     "用 File Preview 流式预览超过 20MB 的大体积 .pdf 或 .mp4 文件",
     "在 File Preview 侧边栏中查看本地 .html 网页效果"
   ]

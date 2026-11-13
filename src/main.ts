@@ -11,6 +11,7 @@ import type {
 } from './types/preview';
 import { createWordRenderer } from './renderers/wordRenderer';
 import { createPptRenderer } from './renderers/pptRenderer';
+import { createExcelRenderer } from './renderers/excelRenderer';
 import { createHtmlRenderer } from './renderers/htmlRenderer';
 import { createPdfRenderer } from './renderers/pdfRenderer';
 import { createVideoRenderer } from './renderers/videoRenderer';
@@ -49,6 +50,9 @@ function classifyDroppedFile(fileName: string): {
   const ext = dotIdx >= 0 ? fileName.slice(dotIdx).toLowerCase() : '';
   if (ext === '.pptx') return { kind: 'ppt', ext };
   if (ext === '.docx') return { kind: 'word', ext };
+  if (ext === '.xlsx' || ext === '.xls' || ext === '.csv' || ext === '.tsv') {
+    return { kind: 'excel', ext };
+  }
   if (ext === '.pdf') return { kind: 'pdf', ext };
   if (ext === '.mp4') return { kind: 'mp4', ext };
   if (ext === '.html' || ext === '.htm') return { kind: 'html', ext };
@@ -73,7 +77,7 @@ function classifyDroppedFile(fileName: string): {
     kind: null,
     ext,
     errorTitle: '不支持的文件格式',
-    errorMessage: `当前仅支持 .pptx、.docx、.pdf、.mp4、.html 和 .htm 文件（收到：${ext || '无扩展名'}）。`,
+    errorMessage: `当前仅支持 .pptx、.docx、.xlsx、.xls、.csv、.tsv、.pdf、.mp4、.html 和 .htm 文件（收到：${ext || '无扩展名'}）。`,
   };
 }
 
@@ -83,6 +87,8 @@ function createRendererForKind(kind: PreviewKind): PreviewRenderer {
       return createWordRenderer();
     case 'ppt':
       return createPptRenderer();
+    case 'excel':
+      return createExcelRenderer();
     case 'pdf':
       return createPdfRenderer();
     case 'mp4':
@@ -148,12 +154,12 @@ function bootstrap(): void {
   dropOverlay.className = 'fp-drop-overlay';
   dropOverlay.hidden = true;
   dropOverlay.innerHTML =
-    '<div class="fp-drop-box"><div class="fp-drop-title">松开鼠标即可预览</div><div class="fp-drop-sub">支持 .pptx / .docx / .pdf / .html / .htm 本地文件</div></div>';
+    '<div class="fp-drop-box"><div class="fp-drop-title">松开鼠标即可预览</div><div class="fp-drop-sub">支持 .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html / .htm 本地文件</div></div>';
 
   // 错误页内使用的隐藏文件选择器
   const fallbackFileInput = document.createElement('input');
   fallbackFileInput.type = 'file';
-  fallbackFileInput.accept = '.pptx,.docx,.pdf,.html,.htm';
+  fallbackFileInput.accept = '.pptx,.docx,.xlsx,.xls,.csv,.tsv,.pdf,.mp4,.html,.htm';
   fallbackFileInput.hidden = true;
 
   mainStage.append(welcomeHost, previewHost, drawerBackdrop, drawerPanel);
@@ -493,6 +499,15 @@ function bootstrap(): void {
       if (preserved.fitMode === false && typeof preserved.zoom === 'number') {
         renderer.setZoom?.(preserved.zoom);
       }
+    } else if (kind === 'excel') {
+      if (preserved.fitMode) {
+        renderer.setZoom?.('fit');
+      } else if (typeof preserved.zoom === 'number') {
+        renderer.setZoom?.(preserved.zoom);
+      }
+      if (typeof preserved.page === 'number' && preserved.page > 1) {
+        renderer.goToPage?.(preserved.page);
+      }
     }
   }
 
@@ -661,7 +676,7 @@ function bootstrap(): void {
       currentSource = null;
       setErrorState(
         classified.errorTitle || '不支持的文件格式',
-        classified.errorMessage || '仅支持 .pptx、.docx、.pdf、.html 和 .htm 文件。',
+        classified.errorMessage || '仅支持 .pptx、.docx、.xlsx、.xls、.csv、.tsv、.pdf、.mp4、.html 和 .htm 文件。',
       );
       return;
     }

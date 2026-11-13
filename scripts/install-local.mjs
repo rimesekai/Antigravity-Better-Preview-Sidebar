@@ -30,13 +30,17 @@ for (const entry of requiredEntries) {
   }
 }
 
-rmSync(targetDir, { recursive: true, force: true });
 mkdirSync(targetDir, { recursive: true });
 
 for (const entry of requiredEntries) {
   const srcPath = join(rootDir, entry);
   const destPath = join(targetDir, entry);
-  cpSync(srcPath, destPath, { recursive: true });
+  try {
+    rmSync(destPath, { recursive: true, force: true });
+  } catch {
+    // Windows 下若目录句柄被宿主监听占用，跳过整目录删除，交由下方 cpSync force 覆盖
+  }
+  cpSync(srcPath, destPath, { recursive: true, force: true });
 }
 
 console.log(`[install-local] 已将插件安装至: ${targetDir}`);

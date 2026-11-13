@@ -120,7 +120,7 @@ function fallbackMessageByStatus(status: number): string {
     case 413:
       return '文件体积超过 200MB 预览上限，无法直接加载。';
     case 415:
-      return '暂不支持该文件格式，当前仅支持 .pptx、.docx、.pdf、.mp4、.html 和 .htm。';
+      return '暂不支持该文件格式，当前仅支持 .pptx、.docx、.xlsx、.xls、.csv、.tsv、.pdf、.mp4、.html 和 .htm。';
     default:
       return status >= 500
         ? `预览服务内部异常（HTTP ${status}），请稍后重试。`
@@ -205,7 +205,7 @@ export async function statFile(file: string): Promise<FileStatInfo> {
 }
 
 /**
- * 以二进制 ArrayBuffer 读取本地 .pptx / .docx / .html 文件内容。
+ * 以二进制 ArrayBuffer 读取本地 .pptx / .docx / .xlsx / .xls / .csv / .tsv / .html 文件内容。
  */
 export async function readFileBuffer(file: string): Promise<ArrayBuffer> {
   const workspaceUris = await getWorkspaceUrisSafe();

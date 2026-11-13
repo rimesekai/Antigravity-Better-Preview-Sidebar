@@ -23,6 +23,10 @@ export class HttpError extends Error {
 const SUPPORTED_FORMATS = new Map([
   ['.pptx', 'ppt'],
   ['.docx', 'word'],
+  ['.xlsx', 'excel'],
+  ['.xls', 'excel'],
+  ['.csv', 'excel'],
+  ['.tsv', 'excel'],
   ['.pdf', 'pdf'],
   ['.mp4', 'mp4'],
   ['.html', 'html'],
@@ -218,7 +222,7 @@ export function findDeepestWorkspaceRoot(targetPath, workspaceRoots, platform = 
 /**
  * 根据文件扩展名校验并返回格式分类。
  * @param {string} filePath
- * @returns {{ ext: string, kind: 'ppt' | 'word' | 'html' | 'pdf' | 'mp4' }}
+ * @returns {{ ext: string, kind: 'ppt' | 'word' | 'excel' | 'html' | 'pdf' | 'mp4' }}
  */
 export function classifyFormat(filePath) {
   const ext = extname(filePath).toLowerCase();
@@ -234,7 +238,7 @@ export function classifyFormat(filePath) {
 
   throw new HttpError(
     415,
-    `不支持的文件格式（${ext || '无扩展名'}），目前仅支持 .pptx、.docx、.pdf、.mp4、.html 和 .htm 文件。`,
+    `不支持的文件格式（${ext || '无扩展名'}），目前仅支持 .pptx、.docx、.xlsx、.xls、.csv、.tsv、.pdf、.mp4、.html 和 .htm 文件。`,
     'UNSUPPORTED_FORMAT',
   );
 }
@@ -251,7 +255,7 @@ export function classifyFormat(filePath) {
  *   requestedPath: string,
  *   name: string,
  *   ext: string,
- *   kind: 'ppt' | 'word' | 'html' | 'pdf',
+ *   kind: 'ppt' | 'word' | 'excel' | 'html' | 'pdf' | 'mp4',
  *   size: number,
  *   mtimeMs: number,
  *   workspaceRoot: string | null,
