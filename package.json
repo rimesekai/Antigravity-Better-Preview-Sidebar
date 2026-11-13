@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Antigravity 侧边栏 PPT / Word / HTML 文件预览插件",
+  "description": "Antigravity 侧边栏 PPT / Word / Excel / PDF / MP4 / HTML 文件预览插件",
   "scripts": {
     "build:ui": "vite build",
     "build:server": "node scripts/build-server.mjs",
@@ -14,7 +14,8 @@
   "dependencies": {
     "@aiden0z/pptx-renderer": "^1.4.0",
     "docx-preview": "^0.4.1",
-    "pdfjs-dist": "3.11.174"
+    "pdfjs-dist": "3.11.174",
+    "xlsx": "^0.18.5"
   },
   "overrides": {
     "@aiden0z/pptx-renderer": {

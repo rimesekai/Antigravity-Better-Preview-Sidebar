@@ -1,4 +1,4 @@
-export type PreviewKind = 'ppt' | 'word' | 'html' | 'pdf' | 'mp4';
+export type PreviewKind = 'ppt' | 'word' | 'excel' | 'html' | 'pdf' | 'mp4';
 
 export const LARGE_PDF_THRESHOLD_BYTES = 20 * 1024 * 1024;
 
@@ -51,6 +51,10 @@ export interface PreviewStateInfo {
   searchMatches?: number;
   activeMatch?: number;
   htmlMode?: HtmlPreviewMode;
+  sheetNames?: string[];
+  activeSheet?: string;
+  rowCount?: number;
+  colCount?: number;
   fileSize?: number;
   warning?: string;
 }
