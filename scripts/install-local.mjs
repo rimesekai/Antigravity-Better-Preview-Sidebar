@@ -20,6 +20,7 @@ const requiredEntries = [
   'sidecars',
   'dist',
   'README.md',
+  'README.en.md',
   'LICENSE',
 ];
 

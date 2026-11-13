@@ -1,5 +1,7 @@
 # File Preview — Antigravity 侧边栏文件预览插件
 
+**简体中文** | [English](./README.en.md)
+
 在 Antigravity 桌面端侧边栏（Aux Pane）直接打开并高保真预览本地 **PPT（`.pptx`）**、**Word（`.docx`）**、**Excel（`.xlsx` / `.xls` / `.csv` / `.tsv`）**、**PDF（`.pdf`，支持 >20MB 大文件流式预览）**、**MP4（`.mp4`，支持 >20MB 大视频流式播放）** 与 **HTML（`.html` / `.htm`）** 文件。
 
 ## 主要功能
