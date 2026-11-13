@@ -1,15 +1,19 @@
 import type {
   HtmlPreviewMode,
+  PdfViewMode,
   PptLayoutMode,
   PreviewKind,
   PreviewStateInfo,
 } from '../types/preview';
+
+const LARGE_PDF_THRESHOLD_BYTES = 20 * 1024 * 1024;
 
 export interface ToolbarFileMeta {
   name: string;
   path: string;
   ext: string;
   kind: PreviewKind;
+  size?: number;
   isLocalDrop: boolean;
 }
 
@@ -37,6 +41,7 @@ export interface ToolbarCallbacks {
   onNextMatch: () => void;
   onPrevMatch: () => void;
   onHtmlModeChange: (mode: HtmlPreviewMode) => void;
+  onPdfModeChange: (mode: PdfViewMode) => void;
 }
 
 export interface ToolbarController {
@@ -65,6 +70,7 @@ function stepZoom(current: number, direction: -1 | 1): number {
 function formatKindBadge(kind: PreviewKind, ext: string): string {
   if (kind === 'ppt') return 'PPTX';
   if (kind === 'word') return 'DOCX';
+  if (kind === 'pdf') return 'PDF';
   return ext.toLowerCase() === '.htm' ? 'HTM' : 'HTML';
 }
 
@@ -98,7 +104,7 @@ export function createToolbar(
     preview: null,
     loading: false,
     hasError: false,
-    autoRefresh: false,
+    autoRefresh: true,
     drawerOpen: false,
   };
   let lastSubmittedQuery = '';
@@ -130,12 +136,17 @@ export function createToolbar(
   const fileNameEl = document.createElement('span');
   fileNameEl.className = 'fp-toolbar-filename';
 
+  const largePdfBadge = document.createElement('span');
+  largePdfBadge.className = 'fp-large-pdf-badge';
+  largePdfBadge.textContent = '>20MB 流式预览';
+  largePdfBadge.hidden = true;
+
   const dropTag = document.createElement('span');
   dropTag.className = 'fp-drop-tag';
   dropTag.textContent = '本地拖入';
   dropTag.hidden = true;
 
-  leftGroup.append(drawerBtn, fileBadge, fileNameEl, dropTag);
+  leftGroup.append(drawerBtn, fileBadge, fileNameEl, largePdfBadge, dropTag);
 
   const rightGroup = document.createElement('div');
   rightGroup.className = 'fp-toolbar-group fp-toolbar-right';
@@ -171,10 +182,33 @@ export function createToolbar(
   const secondaryRow = document.createElement('div');
   secondaryRow.className = 'fp-toolbar-row fp-toolbar-secondary';
 
-  // --- PPT 工具条 ---
+  // --- PPT / PDF 分页工具条 ---
   const pptGroup = document.createElement('div');
   pptGroup.className = 'fp-format-controls fp-format-ppt';
   pptGroup.hidden = true;
+
+  const pdfModeSeg = document.createElement('div');
+  pdfModeSeg.className = 'fp-segmented';
+  pdfModeSeg.hidden = true;
+
+  const pdfCanvasBtn = document.createElement('button');
+  pdfCanvasBtn.type = 'button';
+  pdfCanvasBtn.className = 'fp-seg-btn';
+  pdfCanvasBtn.textContent = '画布';
+  pdfCanvasBtn.addEventListener('click', () => callbacks.onPdfModeChange('canvas'));
+
+  const pdfNativeBtn = document.createElement('button');
+  pdfNativeBtn.type = 'button';
+  pdfNativeBtn.className = 'fp-seg-btn';
+  pdfNativeBtn.textContent = '原生';
+  pdfNativeBtn.addEventListener('click', () => callbacks.onPdfModeChange('native'));
+
+  pdfModeSeg.append(pdfCanvasBtn, pdfNativeBtn);
+
+  const pdfNativeHint = document.createElement('span');
+  pdfNativeHint.className = 'fp-toolbar-hint';
+  pdfNativeHint.textContent = '流式原生 PDF 视图';
+  pdfNativeHint.hidden = true;
 
   const pptLayoutSeg = document.createElement('div');
   pptLayoutSeg.className = 'fp-segmented';
@@ -352,6 +386,8 @@ export function createToolbar(
   pptSearchCluster.append(searchInput, searchCountEl, prevMatchBtn, nextMatchBtn);
 
   pptGroup.append(
+    pdfModeSeg,
+    pdfNativeHint,
     pptLayoutSeg,
     pptThumbBtn,
     pptPageCluster,
@@ -442,7 +478,36 @@ export function createToolbar(
   root.append(primaryRow, secondaryRow);
   container.appendChild(root);
 
-  function updatePptControls(preview: PreviewStateInfo | null): void {
+  function updatePagedControls(preview: PreviewStateInfo | null, kind: PreviewKind): void {
+    const isPdf = kind === 'pdf';
+    const pdfMode: PdfViewMode = preview?.pdfMode ?? 'canvas';
+    const isNativePdf = isPdf && pdfMode === 'native';
+
+    pdfModeSeg.hidden = !isPdf;
+    pdfCanvasBtn.classList.toggle('is-active', pdfMode === 'canvas');
+    pdfNativeBtn.classList.toggle('is-active', pdfMode === 'native');
+    pdfNativeHint.hidden = !isNativePdf;
+
+    pptLayoutSeg.hidden = isNativePdf;
+    pptThumbBtn.hidden = isNativePdf;
+    pptPageCluster.hidden = isNativePdf;
+    pptZoomCluster.hidden = isNativePdf;
+    pptSearchCluster.hidden = isNativePdf;
+
+    if (isPdf) {
+      pptThumbBtn.title = '切换页面缩略图栏';
+      searchInput.placeholder = '搜索 PDF 文本 (回车)';
+      searchInput.setAttribute('aria-label', '搜索 PDF 文本');
+    } else {
+      pptThumbBtn.title = '切换幻灯片缩略图栏';
+      searchInput.placeholder = '搜索幻灯片 (回车)';
+      searchInput.setAttribute('aria-label', '搜索幻灯片文本');
+    }
+
+    if (isNativePdf) {
+      return;
+    }
+
     const page = preview?.page ?? 1;
     const totalPages = Math.max(1, preview?.totalPages ?? 1);
     const layoutMode = preview?.layoutMode ?? 'slide';
@@ -527,11 +592,15 @@ export function createToolbar(
       fileBadge.textContent = formatKindBadge(file.kind, file.ext);
       fileNameEl.textContent = file.name;
       fileNameEl.title = file.isLocalDrop ? `${file.name}（本地拖拽文件）` : file.path;
+      largePdfBadge.hidden = !(
+        file.kind === 'pdf' && (file.size ?? 0) > LARGE_PDF_THRESHOLD_BYTES
+      );
       dropTag.hidden = !file.isLocalDrop;
     } else {
       fileBadge.hidden = true;
       fileNameEl.textContent = '未选择文件';
       fileNameEl.title = '';
+      largePdfBadge.hidden = true;
       dropTag.hidden = true;
     }
 
@@ -552,12 +621,13 @@ export function createToolbar(
       return;
     }
 
-    pptGroup.hidden = file.kind !== 'ppt';
+    const isPaged = file.kind === 'ppt' || file.kind === 'pdf';
+    pptGroup.hidden = !isPaged;
     wordGroup.hidden = file.kind !== 'word';
     htmlGroup.hidden = file.kind !== 'html';
 
-    if (file.kind === 'ppt') {
-      updatePptControls(state.preview);
+    if (isPaged) {
+      updatePagedControls(state.preview, file.kind);
     } else if (file.kind === 'word') {
       updateWordControls(state.preview);
     } else {

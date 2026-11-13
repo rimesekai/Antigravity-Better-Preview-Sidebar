@@ -15,7 +15,7 @@ interface RgbColor {
 }
 
 /**
- * 解析 CSS 颜色值（支持 #rgb、#rrggbb、#rgba、#rrggbbaa、rgb(...)、rgba(...)）。
+ * 解析 CSS 颜色值（支持 #rgb、#rrggbb、#rgba、#rrggbbaa、rgb(...)、rgba(...)、color(srgb ...)）。
  */
 export function parseCssColorToRgb(raw: string): RgbColor | null {
   const value = raw.trim().toLowerCase();
@@ -72,6 +72,34 @@ export function parseCssColorToRgb(raw: string): RgbColor | null {
     };
   }
 
+  const srgbMatch = /^color\(srgb\s+([^)]+)\)$/.exec(value);
+  if (srgbMatch) {
+    const inner = srgbMatch[1].split('/')[0].trim();
+    const parts = inner.split(/\s+/).map((item) => item.trim()).filter(Boolean);
+    if (parts.length < 3) {
+      return null;
+    }
+
+    const channels = parts.slice(0, 3).map((part) => {
+      if (part.endsWith('%')) {
+        const pct = Number.parseFloat(part.slice(0, -1));
+        return Number.isFinite(pct) ? (pct / 100) * 255 : Number.NaN;
+      }
+      const unit = Number.parseFloat(part);
+      return Number.isFinite(unit) ? unit * 255 : Number.NaN;
+    });
+
+    if (channels.some((c) => !Number.isFinite(c))) {
+      return null;
+    }
+
+    return {
+      r: Math.min(255, Math.max(0, channels[0])),
+      g: Math.min(255, Math.max(0, channels[1])),
+      b: Math.min(255, Math.max(0, channels[2])),
+    };
+  }
+
   return null;
 }
 
@@ -90,30 +118,50 @@ export function computeRelativeLuminance(rgb: RgbColor): number {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
-function resolveFallbackTheme(): ThemeMode {
-  if (
-    typeof window !== 'undefined' &&
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia('(prefers-color-scheme: dark)').matches
-  ) {
+function resolveFallbackTheme(root: HTMLElement): ThemeMode {
+  if (root.classList.contains('dark')) {
     return 'dark';
+  }
+  if (root.classList.contains('light')) {
+    return 'light';
   }
   return 'light';
 }
 
+function probeBackgroundColor(root: HTMLElement, rawBackground: string): RgbColor | null {
+  const probe = document.createElement('span');
+  probe.style.cssText =
+    'position:absolute;visibility:hidden;pointer-events:none;color:var(--background, #f7f7f8)';
+  root.appendChild(probe);
+
+  let computedColor = '';
+  try {
+    computedColor = getComputedStyle(probe).color;
+  } finally {
+    probe.remove();
+  }
+
+  return parseCssColorToRgb(computedColor) ?? parseCssColorToRgb(rawBackground);
+}
+
 /**
- * 读取根元素 --background 变量并同步更新 document.documentElement.dataset.theme。
+ * 读取根元素 --background 变量（通过隐藏 DOM 探针解析 CSS 颜色函数）并同步更新 document.documentElement.dataset.theme。
  */
 export function syncThemeAttribute(): ThemeMode {
   const root = document.documentElement;
-  const rawBackground = getComputedStyle(root).getPropertyValue('--background');
-  const rgb = parseCssColorToRgb(rawBackground);
+  const rawBackground = getComputedStyle(root).getPropertyValue('--background').trim();
 
-  const nextTheme: ThemeMode = rgb
-    ? computeRelativeLuminance(rgb) < 0.45
-      ? 'dark'
-      : 'light'
-    : resolveFallbackTheme();
+  let nextTheme: ThemeMode;
+  if (rawBackground) {
+    const rgb = probeBackgroundColor(root, rawBackground);
+    nextTheme = rgb
+      ? computeRelativeLuminance(rgb) < 0.5
+        ? 'dark'
+        : 'light'
+      : resolveFallbackTheme(root);
+  } else {
+    nextTheme = resolveFallbackTheme(root);
+  }
 
   if (root.dataset.theme !== nextTheme) {
     root.dataset.theme = nextTheme;
@@ -123,7 +171,7 @@ export function syncThemeAttribute(): ThemeMode {
 }
 
 /**
- * 启动宿主主题同步监听（监听 root style 属性与系统 prefers-color-scheme）。
+ * 启动宿主主题同步监听（监听 root style/class 属性变化与宿主 theme-change 消息）。
  */
 export function startThemeSync(onThemeChange?: (theme: ThemeMode) => void): () => void {
   let lastTheme = syncThemeAttribute();
@@ -146,20 +194,18 @@ export function startThemeSync(onThemeChange?: (theme: ThemeMode) => void): () =
     attributeFilter: ['style', 'class'],
   });
 
-  const mediaQuery =
-    typeof window.matchMedia === 'function'
-      ? window.matchMedia('(prefers-color-scheme: dark)')
-      : null;
-
-  const handleMediaChange = () => {
-    handleUpdate();
+  const handleWindowMessage = (event: MessageEvent) => {
+    const data = event.data as { type?: unknown } | null | undefined;
+    if (data && typeof data === 'object' && data.type === 'theme-change') {
+      handleUpdate();
+    }
   };
 
-  mediaQuery?.addEventListener?.('change', handleMediaChange);
+  window.addEventListener('message', handleWindowMessage);
 
   return () => {
     observer.disconnect();
-    mediaQuery?.removeEventListener?.('change', handleMediaChange);
+    window.removeEventListener('message', handleWindowMessage);
   };
 }
 
