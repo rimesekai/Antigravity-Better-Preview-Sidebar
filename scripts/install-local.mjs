@@ -15,6 +15,7 @@ const targetDir = join(homedir(), '.gemini', 'config', 'plugins', 'file-preview'
 const requiredEntries = [
   'plugin.json',
   'assets',
+  'rules',
   'skills',
   'sidecars',
   'dist',

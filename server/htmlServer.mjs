@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { createReadStream, realpathSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { dirname, extname, relative, resolve, sep } from 'node:path';
+import { basename, dirname, extname, relative, resolve, sep } from 'node:path';
 import {
   HttpError,
   findDeepestWorkspaceRoot,
@@ -34,19 +34,217 @@ export const MIME_TYPES = Object.freeze({
 /** @type {Map<string, { mountRoot: string, entryRelPath: string, createdAt: number }>} */
 const mounts = new Map();
 
+/** @type {Map<string, { filePath: string, fileName: string, size: number, createdAt: number }>} */
+const pdfMounts = new Map();
+
+const PDF_CORS_HEADERS = Object.freeze({
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+  'Access-Control-Allow-Headers': 'Range, Content-Type, If-None-Match, If-Modified-Since',
+  'Access-Control-Expose-Headers': 'Accept-Ranges, Content-Encoding, Content-Length, Content-Range',
+});
+
 /** @type {import('node:http').Server | null} */
 let httpServer = null;
 /** @type {Promise<number> | null} */
 let listeningPromise = null;
 let serverPort = 0;
 
-function sendText(res, status, text) {
+function sendText(res, status, text, extraHeaders = {}) {
   res.writeHead(status, {
+    ...extraHeaders,
     'Content-Type': 'text/plain; charset=utf-8',
     'X-Content-Type-Options': 'nosniff',
     'Cache-Control': 'no-store',
   });
   res.end(text);
+}
+
+/**
+ * 解析单个 HTTP Range 请求头（支持 bytes=start-end / bytes=start- / bytes=-suffix）。
+ * @param {string} rangeHeader
+ * @param {number} totalSize
+ * @returns {{ ok: true, start: number, end: number } | { ok: false }}
+ */
+function parseByteRange(rangeHeader, totalSize) {
+  if (totalSize <= 0) {
+    return { ok: false };
+  }
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
+  if (!match) {
+    return { ok: false };
+  }
+  const startStr = match[1];
+  const endStr = match[2];
+  if (!startStr && !endStr) {
+    return { ok: false };
+  }
+
+  let start;
+  let end;
+  if (!startStr) {
+    const suffixLength = Number(endStr);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) {
+      return { ok: false };
+    }
+    start = Math.max(0, totalSize - suffixLength);
+    end = totalSize - 1;
+  } else {
+    start = Number(startStr);
+    if (!Number.isSafeInteger(start) || start < 0 || start >= totalSize) {
+      return { ok: false };
+    }
+    if (!endStr) {
+      end = totalSize - 1;
+    } else {
+      end = Number(endStr);
+      if (!Number.isSafeInteger(end) || end < start) {
+        return { ok: false };
+      }
+      if (end >= totalSize) {
+        end = totalSize - 1;
+      }
+    }
+  }
+
+  return { ok: true, start, end };
+}
+
+/**
+ * 处理独立端口 PDF HTTP Range 流式预览请求：OPTIONS/GET/HEAD /p/<mountId>/<fileName>
+ * @param {import('node:http').IncomingMessage} req
+ * @param {import('node:http').ServerResponse} res
+ * @param {string} rawPathname
+ */
+function handlePdfRequest(req, res, rawPathname) {
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      ...PDF_CORS_HEADERS,
+      'Cache-Control': 'no-store',
+    });
+    res.end();
+    return;
+  }
+
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    sendText(res, 405, 'Method Not Allowed', PDF_CORS_HEADERS);
+    return;
+  }
+
+  const match = /^\/p\/([0-9a-f]{48})\/([^/]+)$/.exec(rawPathname);
+  if (!match) {
+    sendText(res, 404, 'Not Found', PDF_CORS_HEADERS);
+    return;
+  }
+
+  const mountId = match[1];
+  const rawFileName = match[2];
+
+  let decodedName;
+  try {
+    decodedName = decodeURIComponent(rawFileName);
+  } catch {
+    sendText(res, 400, 'Bad Request', PDF_CORS_HEADERS);
+    return;
+  }
+
+  const mount = pdfMounts.get(mountId);
+  if (!mount || decodedName !== mount.fileName) {
+    sendText(res, 404, 'Mount Not Found', PDF_CORS_HEADERS);
+    return;
+  }
+
+  // 刷新 LRU 位置
+  pdfMounts.delete(mountId);
+  pdfMounts.set(mountId, mount);
+
+  if (isForbiddenSystemPath(mount.filePath)) {
+    sendText(res, 403, 'Forbidden', PDF_CORS_HEADERS);
+    return;
+  }
+
+  let stat;
+  try {
+    stat = statSync(mount.filePath);
+  } catch {
+    sendText(res, 404, 'Not Found', PDF_CORS_HEADERS);
+    return;
+  }
+
+  if (!stat.isFile()) {
+    sendText(res, 404, 'Not Found', PDF_CORS_HEADERS);
+    return;
+  }
+
+  const totalSize = stat.size;
+  const baseHeaders = {
+    ...PDF_CORS_HEADERS,
+    'Accept-Ranges': 'bytes',
+    'Content-Type': 'application/pdf',
+    'Content-Disposition': 'inline',
+    'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': 'no-store',
+  };
+
+  const rangeHeader = req.headers.range;
+  if (typeof rangeHeader === 'string' && rangeHeader.trim() !== '') {
+    const parsed = parseByteRange(rangeHeader, totalSize);
+    if (!parsed.ok) {
+      res.writeHead(416, {
+        ...PDF_CORS_HEADERS,
+        'Content-Range': `bytes */${totalSize}`,
+        'Content-Type': 'text/plain; charset=utf-8',
+        'X-Content-Type-Options': 'nosniff',
+        'Cache-Control': 'no-store',
+      });
+      res.end('Range Not Satisfiable');
+      return;
+    }
+
+    const { start, end } = parsed;
+    const contentLength = end - start + 1;
+    res.writeHead(206, {
+      ...baseHeaders,
+      'Content-Range': `bytes ${start}-${end}/${totalSize}`,
+      'Content-Length': contentLength,
+    });
+
+    if (req.method === 'HEAD') {
+      res.end();
+      return;
+    }
+
+    const stream = createReadStream(mount.filePath, { start, end });
+    stream.on('error', () => {
+      if (!res.headersSent) {
+        sendText(res, 500, 'Internal Server Error', PDF_CORS_HEADERS);
+      } else {
+        res.destroy();
+      }
+    });
+    stream.pipe(res);
+    return;
+  }
+
+  res.writeHead(200, {
+    ...baseHeaders,
+    'Content-Length': totalSize,
+  });
+
+  if (req.method === 'HEAD' || totalSize === 0) {
+    res.end();
+    return;
+  }
+
+  const stream = createReadStream(mount.filePath);
+  stream.on('error', () => {
+    if (!res.headersSent) {
+      sendText(res, 500, 'Internal Server Error', PDF_CORS_HEADERS);
+    } else {
+      res.destroy();
+    }
+  });
+  stream.pipe(res);
 }
 
 /**
@@ -85,12 +283,17 @@ function parseSafeSegments(rawRelPath) {
  * @param {import('node:http').ServerResponse} res
  */
 function handlePreviewRequest(req, res) {
+  const rawPathname = (req.url || '/').split('?')[0].split('#')[0];
+  if (rawPathname.startsWith('/p/')) {
+    handlePdfRequest(req, res, rawPathname);
+    return;
+  }
+
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     sendText(res, 405, 'Method Not Allowed');
     return;
   }
 
-  const rawPathname = (req.url || '/').split('?')[0].split('#')[0];
   const match = /^\/m\/([0-9a-f]{48})\/(.+)$/.exec(rawPathname);
   if (!match) {
     sendText(res, 404, 'Not Found');
@@ -276,6 +479,53 @@ export async function mountHtmlTarget(resolvedFilePath, allowedWorkspaceRoots = 
 }
 
 /**
+ * 将合法的本地 .pdf 文件注册为独立端口 HTTP Range 流式预览挂载点。
+ * @param {string} resolvedFilePath 已通过安全校验的真实文件路径
+ * @returns {Promise<{ url: string, mountId: string, fileName: string, size: number }>}
+ */
+export async function mountPdfTarget(resolvedFilePath) {
+  const realFilePath = realpathSync(resolvedFilePath);
+  if (isForbiddenSystemPath(realFilePath)) {
+    throw new HttpError(403, '禁止访问受保护的系统生成日志或消息目录', 'FORBIDDEN_SYSTEM_PATH');
+  }
+
+  const ext = extname(realFilePath).toLowerCase();
+  if (ext !== '.pdf') {
+    throw new HttpError(415, '仅支持挂载 .pdf 文件', 'INVALID_PDF_TARGET');
+  }
+
+  const stat = statSync(realFilePath);
+  if (!stat.isFile()) {
+    throw new HttpError(400, '目标路径不是普通文件', 'NOT_A_FILE');
+  }
+
+  const port = await ensureHtmlServerStarted();
+  const mountId = randomBytes(24).toString('hex');
+  const fileName = basename(realFilePath);
+
+  pdfMounts.set(mountId, {
+    filePath: realFilePath,
+    fileName,
+    size: stat.size,
+    createdAt: Date.now(),
+  });
+
+  // LRU 上限控制，保留最近 32 个活跃 PDF 挂载
+  while (pdfMounts.size > MAX_ACTIVE_MOUNTS) {
+    const oldestKey = pdfMounts.keys().next().value;
+    if (!oldestKey) break;
+    pdfMounts.delete(oldestKey);
+  }
+
+  return {
+    url: `http://127.0.0.1:${port}/p/${mountId}/${encodeURIComponent(fileName)}`,
+    mountId,
+    fileName,
+    size: stat.size,
+  };
+}
+
+/**
  * 获取当前活跃挂载数量（供测试与监控使用）。
  * @returns {number}
  */
@@ -284,11 +534,20 @@ export function getActiveMountCount() {
 }
 
 /**
- * 关闭独立 HTML 静态预览服务并清理所有挂载点。
+ * 获取当前活跃 PDF 挂载数量（供测试与监控使用）。
+ * @returns {number}
+ */
+export function getActivePdfMountCount() {
+  return pdfMounts.size;
+}
+
+/**
+ * 关闭独立 HTML/PDF 静态预览服务并清理所有挂载点。
  * @returns {Promise<void>}
  */
 export async function closeHtmlServer() {
   mounts.clear();
+  pdfMounts.clear();
   listeningPromise = null;
   serverPort = 0;
 

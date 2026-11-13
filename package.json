@@ -13,7 +13,13 @@
   },
   "dependencies": {
     "@aiden0z/pptx-renderer": "^1.4.0",
-    "docx-preview": "^0.4.1"
+    "docx-preview": "^0.4.1",
+    "pdfjs-dist": "3.11.174"
+  },
+  "overrides": {
+    "@aiden0z/pptx-renderer": {
+      "pdfjs-dist": "$pdfjs-dist"
+    }
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

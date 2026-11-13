@@ -1,15 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" fill="none">
-  <!-- 外围留白约 10%（绘制区 13..115），深色与浅色主题均保持高对比度 -->
-  <rect x="20" y="14" width="74" height="94" rx="12" fill="#1E293B" stroke="#94A3B8" stroke-width="4" />
-  <!-- 文档折角 -->
-  <path d="M72 14V32C72 35.3137 74.6863 38 78 38H94" fill="#334155" stroke="#94A3B8" stroke-width="4" stroke-linejoin="round" />
-  <!-- 文档内容线条 -->
-  <rect x="34" y="34" width="26" height="6" rx="3" fill="#38BDF8" />
-  <rect x="34" y="50" width="46" height="5" rx="2.5" fill="#CBD5E1" />
-  <rect x="34" y="62" width="40" height="5" rx="2.5" fill="#94A3B8" />
-  <rect x="34" y="74" width="32" height="5" rx="2.5" fill="#94A3B8" />
-  <!-- 右下角高对比度预览角标（放大镜/视窗风格） -->
-  <circle cx="88" cy="88" r="24" fill="#0EA5E9" stroke="#F8FAFC" stroke-width="4" />
-  <path d="M75.5 88C78.8 81.8 83.2 78.8 88 78.8C92.8 78.8 97.2 81.8 100.5 88C97.2 94.2 92.8 97.2 88 97.2C83.2 97.2 78.8 94.2 75.5 88Z" fill="#F8FAFC" />
-  <circle cx="88" cy="88" r="4.5" fill="#0F172A" />
+  <!-- 背层多格式色卡：Google Yellow (#FBBC04) 与 Google Red (#EA4335) -->
+  <rect x="28" y="14" width="66" height="86" rx="12" transform="rotate(6 61 57)" fill="#FBBC04" />
+  <rect x="22" y="16" width="66" height="86" rx="12" transform="rotate(-4 55 59)" fill="#EA4335" />
+  <!-- 主文档页：Google Blue (#4285F4) 无边框圆角纸张 + 深蓝折角 (#1967D2) -->
+  <path d="M22 26C22 19.3726 27.3726 14 34 14H66L90 38V98C90 104.627 84.6274 110 78 110H34C27.3726 110 22 104.627 22 98V26Z" fill="#4285F4" />
+  <path d="M66 14L90 38H74C69.5817 38 66 34.4183 66 30V14Z" fill="#1967D2" />
+  <!-- 文档内简洁白色排版横条 -->
+  <rect x="34" y="48" width="42" height="6" rx="3" fill="#FFFFFF" />
+  <rect x="34" y="61" width="34" height="6" rx="3" fill="#FFFFFF" fill-opacity="0.88" />
+  <rect x="34" y="74" width="24" height="6" rx="3" fill="#FFFFFF" fill-opacity="0.75" />
+  <!-- 右下角 Google Lens / 放大镜简洁预览环（白底外环 + Google Green #34A853 & Blue 镜片） -->
+  <circle cx="84" cy="84" r="22" fill="#FFFFFF" />
+  <circle cx="84" cy="84" r="16" stroke="#34A853" stroke-width="6" />
+  <circle cx="84" cy="84" r="6" fill="#4285F4" />
+  <path d="M97 97L108 108" stroke="#34A853" stroke-width="8" stroke-linecap="round" />
 </svg>

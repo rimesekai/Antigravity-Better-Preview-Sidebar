@@ -166,7 +166,9 @@ const {
 const {
   closeHtmlServer,
   getActiveMountCount,
+  getActivePdfMountCount,
   mountHtmlTarget,
+  mountPdfTarget,
 } = await import('../server/htmlServer.mjs');
 
 const { scanWorkspaceFiles } = await import('../server/workspaceScanner.mjs');
@@ -215,6 +217,7 @@ describe('pathSecurity 路径安全与格式分类测试', () => {
 
     writeFileSync(join(workspaceDir, 'deck.pptx'), Buffer.from('PK\x03\x04pptx'));
     writeFileSync(join(workspaceDir, 'report.DOCX'), Buffer.from('PK\x03\x04docx'));
+    writeFileSync(join(workspaceDir, 'manual.PDF'), Buffer.from('%PDF-1.7\n'));
     writeFileSync(join(workspaceDir, 'page.html'), '<h1>Hello</h1>');
     writeFileSync(join(workspaceDir, 'legacy.doc'), 'legacy doc');
     writeFileSync(join(workspaceDir, 'legacy.ppt'), 'legacy ppt');
@@ -289,7 +292,7 @@ describe('pathSecurity 路径安全与格式分类测试', () => {
 
     assert.throws(
       () => validateFilePath(join(workspaceDir, 'notes.txt'), { allowedRootsOverride: [workspaceDir] }),
-      (err) => err instanceof HttpError && err.status === 415,
+      (err) => err instanceof HttpError && err.status === 415 && err.message.includes('.pdf'),
     );
   });
 
@@ -301,6 +304,10 @@ describe('pathSecurity 路径安全与格式分类测试', () => {
     const docx = validateFilePath(join(workspaceDir, 'report.DOCX'), { allowedRootsOverride: [workspaceDir] });
     assert.equal(docx.kind, 'word');
     assert.equal(docx.ext, '.docx');
+
+    const pdf = validateFilePath(join(workspaceDir, 'manual.PDF'), { allowedRootsOverride: [workspaceDir] });
+    assert.equal(pdf.kind, 'pdf');
+    assert.equal(pdf.ext, '.pdf');
 
     const html = validateFilePath(join(workspaceDir, 'page.html'), { allowedRootsOverride: [workspaceDir] });
     assert.equal(html.kind, 'html');
@@ -397,6 +404,91 @@ describe('htmlServer 独立静态预览服务测试', () => {
     }
     assert.equal(getActiveMountCount(), 32);
   });
+
+  it('支持 PDF 挂载与 HTTP Range 流式传输、CORS 预检及 416/空文件边界', async () => {
+    const pdfPayload = Buffer.from('%PDF-1.7-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ');
+    const pdfPath = join(workspaceDir, 'sample 测试.pdf');
+    const emptyPdfPath = join(workspaceDir, 'empty.pdf');
+    writeFileSync(pdfPath, pdfPayload);
+    writeFileSync(emptyPdfPath, Buffer.alloc(0));
+
+    const mounted = await mountPdfTarget(pdfPath);
+    assert.match(mounted.mountId, /^[0-9a-f]{48}$/);
+    assert.equal(mounted.fileName, 'sample 测试.pdf');
+    assert.equal(mounted.size, pdfPayload.length);
+    assert.match(mounted.url, /^http:\/\/127\.0\.0\.1:\d+\/p\/[0-9a-f]{48}\/sample%20%E6%B5%8B%E8%AF%95\.pdf$/);
+
+    // OPTIONS 预检
+    const optRes = await fetch(mounted.url, { method: 'OPTIONS' });
+    assert.equal(optRes.status, 204);
+    assert.equal(optRes.headers.get('access-control-allow-origin'), '*');
+    assert.match(optRes.headers.get('access-control-allow-methods'), /GET/);
+    assert.match(optRes.headers.get('access-control-allow-headers'), /Range/);
+    assert.match(optRes.headers.get('access-control-expose-headers'), /Content-Range/);
+
+    // 无 Range 全量 GET
+    const fullRes = await fetch(mounted.url);
+    assert.equal(fullRes.status, 200);
+    assert.equal(fullRes.headers.get('content-type'), 'application/pdf');
+    assert.equal(fullRes.headers.get('accept-ranges'), 'bytes');
+    assert.equal(fullRes.headers.get('content-disposition'), 'inline');
+    assert.equal(fullRes.headers.get('access-control-allow-origin'), '*');
+    assert.equal(fullRes.headers.get('x-content-type-options'), 'nosniff');
+    assert.deepEqual(Buffer.from(await fullRes.arrayBuffer()), pdfPayload);
+
+    // bytes=start-end 分片 Range
+    const r1 = await fetch(mounted.url, { headers: { Range: 'bytes=0-9' } });
+    assert.equal(r1.status, 206);
+    assert.equal(r1.headers.get('content-range'), `bytes 0-9/${pdfPayload.length}`);
+    assert.equal(r1.headers.get('content-length'), '10');
+    assert.deepEqual(Buffer.from(await r1.arrayBuffer()), pdfPayload.subarray(0, 10));
+
+    // bytes=start- 分片 Range
+    const r2 = await fetch(mounted.url, { headers: { Range: 'bytes=20-' } });
+    assert.equal(r2.status, 206);
+    assert.equal(r2.headers.get('content-range'), `bytes 20-${pdfPayload.length - 1}/${pdfPayload.length}`);
+    assert.deepEqual(Buffer.from(await r2.arrayBuffer()), pdfPayload.subarray(20));
+
+    // bytes=-suffix 分片 Range
+    const r3 = await fetch(mounted.url, { headers: { Range: 'bytes=-5' } });
+    assert.equal(r3.status, 206);
+    assert.equal(
+      r3.headers.get('content-range'),
+      `bytes ${pdfPayload.length - 5}-${pdfPayload.length - 1}/${pdfPayload.length}`,
+    );
+    assert.deepEqual(Buffer.from(await r3.arrayBuffer()), pdfPayload.subarray(pdfPayload.length - 5));
+
+    // HEAD Range 请求
+    const headRes = await fetch(mounted.url, { method: 'HEAD', headers: { Range: 'bytes=0-4' } });
+    assert.equal(headRes.status, 206);
+    assert.equal(headRes.headers.get('content-length'), '5');
+    assert.equal((await headRes.arrayBuffer()).byteLength, 0);
+
+    // 越界 / 非法 Range 返回 416
+    const r416 = await fetch(mounted.url, { headers: { Range: 'bytes=99999-100010' } });
+    assert.equal(r416.status, 416);
+    assert.equal(r416.headers.get('content-range'), `bytes */${pdfPayload.length}`);
+
+    const rBad = await fetch(mounted.url, { headers: { Range: 'bytes=abc-def' } });
+    assert.equal(rBad.status, 416);
+
+    // 空 PDF 边界
+    const emptyMounted = await mountPdfTarget(emptyPdfPath);
+    const emptyFull = await fetch(emptyMounted.url);
+    assert.equal(emptyFull.status, 200);
+    assert.equal(emptyFull.headers.get('content-length'), '0');
+    assert.equal((await emptyFull.arrayBuffer()).byteLength, 0);
+
+    const emptyRange = await fetch(emptyMounted.url, { headers: { Range: 'bytes=0-0' } });
+    assert.equal(emptyRange.status, 416);
+    assert.equal(emptyRange.headers.get('content-range'), 'bytes */0');
+
+    // PDF LRU 上限 32
+    for (let i = 0; i < 36; i += 1) {
+      await mountPdfTarget(pdfPath);
+    }
+    assert.equal(getActivePdfMountCount(), 32);
+  });
 });
 
 describe('workspaceScanner 工作区扫描测试', () => {
@@ -412,6 +504,7 @@ describe('workspaceScanner 工作区扫描测试', () => {
 
     writeFileSync(join(tempRoot, 'docs', 'a.docx'), 'docx');
     writeFileSync(join(tempRoot, 'docs', 'sub', 'b.pptx'), 'pptx');
+    writeFileSync(join(tempRoot, 'docs', 'manual.pdf'), '%PDF-1.7');
     writeFileSync(join(tempRoot, 'index.htm'), '<h1>hi</h1>');
     writeFileSync(join(tempRoot, 'node_modules', 'pkg', 'ignored.html'), '<p>ignore</p>');
     writeFileSync(join(tempRoot, 'dist', 'ignored.html'), '<p>ignore</p>');
@@ -431,6 +524,7 @@ describe('workspaceScanner 工作区扫描测试', () => {
     assert.deepEqual(relPaths, [
       'd1/d2/d3/d4/d5/depth5.pptx',
       'docs/a.docx',
+      'docs/manual.pdf',
       'docs/sub/b.pptx',
       'index.htm',
     ]);
@@ -457,11 +551,13 @@ describe('SidecarApp HTTP 路由集成测试', () => {
 
     writeFileSync(join(distDir, 'index.html'), '<html><body>Mock UI</body></html>');
     writeFileSync(join(distDir, 'app.js'), 'console.log("ui");');
+    writeFileSync(join(distDir, 'pdf.worker.js'), 'console.log("worker");');
     writeFileSync(join(distDir, 'styles.css'), 'body{}');
     writeFileSync(join(assetsDir, 'logo.svg'), '<svg></svg>');
 
     writeFileSync(join(workspaceDir, 'demo.pptx'), Buffer.from([1, 2, 3, 4]));
     writeFileSync(join(workspaceDir, 'demo.html'), '<html><body>Demo</body></html>');
+    writeFileSync(join(workspaceDir, 'demo.pdf'), Buffer.from('%PDF-1.7-MOCK-BODY'));
     writeFileSync(join(workspaceDir, 'old.doc'), 'old');
 
     process.env.ANTIGRAVITY_SIDECAR_WEB_PORT = '0';
@@ -495,6 +591,11 @@ describe('SidecarApp HTTP 路由集成测试', () => {
     const logoRes = await fetch(`${baseUrl}/assets/logo.svg`);
     assert.equal(logoRes.status, 200);
     assert.equal(logoRes.headers.get('content-type'), 'image/svg+xml');
+
+    const workerRes = await fetch(`${baseUrl}/pdf.worker.js`);
+    assert.equal(workerRes.status, 200);
+    assert.match(workerRes.headers.get('content-type'), /^application\/javascript/);
+    assert.match(await workerRes.text(), /worker/);
   });
 
   it('POST 接口强制校验 X-Sidecar-Token，未携带返回 401', async () => {
@@ -541,7 +642,7 @@ describe('SidecarApp HTTP 路由集成测试', () => {
     });
     assert.equal(listRes.status, 200);
     const listJson = await listRes.json();
-    assert.equal(listJson.files.length, 2);
+    assert.equal(listJson.files.length, 3);
 
     const mountRes = await fetch(`${baseUrl}/api/html/mount`, {
       method: 'POST',
@@ -555,6 +656,29 @@ describe('SidecarApp HTTP 路由集成测试', () => {
     const htmlFetch = await fetch(mountJson.url);
     assert.equal(htmlFetch.status, 200);
     assert.match(await htmlFetch.text(), /Demo/);
+
+    // PDF 挂载与 Range 请求
+    const pdfMountRes = await fetch(`${baseUrl}/api/pdf/mount`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ file: join(workspaceDir, 'demo.pdf'), workspaceUris: [workspaceDir] }),
+    });
+    assert.equal(pdfMountRes.status, 200);
+    const pdfMountJson = await pdfMountRes.json();
+    assert.equal(pdfMountJson.fileName, 'demo.pdf');
+    assert.equal(pdfMountJson.size, Buffer.from('%PDF-1.7-MOCK-BODY').length);
+
+    const pdfRangeRes = await fetch(pdfMountJson.url, { headers: { Range: 'bytes=0-7' } });
+    assert.equal(pdfRangeRes.status, 206);
+    assert.equal(await pdfRangeRes.text(), '%PDF-1.7');
+
+    // 非 PDF 文件调用 /api/pdf/mount 返回 415
+    const nonPdfMount = await fetch(`${baseUrl}/api/pdf/mount`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ file: join(workspaceDir, 'demo.pptx'), workspaceUris: [workspaceDir] }),
+    });
+    assert.equal(nonPdfMount.status, 415);
 
     // 旧版 .doc 返回 415
     const docStat = await fetch(`${baseUrl}/api/fs/stat`, {

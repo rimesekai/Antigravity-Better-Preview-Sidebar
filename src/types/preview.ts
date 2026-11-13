@@ -1,4 +1,6 @@
-export type PreviewKind = 'ppt' | 'word' | 'html';
+export type PreviewKind = 'ppt' | 'word' | 'html' | 'pdf';
+
+export const LARGE_PDF_THRESHOLD_BYTES = 20 * 1024 * 1024;
 
 export interface FileStatInfo {
   path: string;
@@ -21,8 +23,16 @@ export interface HtmlMountInfo {
   mountRoot: string;
 }
 
+export interface PdfMountInfo {
+  url: string;
+  mountId: string;
+  fileName: string;
+  size: number;
+}
+
 export type HtmlPreviewMode = 'sandbox' | 'interactive' | 'source';
 export type PptLayoutMode = 'slide' | 'list';
+export type PdfViewMode = 'canvas' | 'native';
 
 export interface PreviewStateInfo {
   kind: PreviewKind;
@@ -35,6 +45,8 @@ export interface PreviewStateInfo {
   searchMatches?: number;
   activeMatch?: number;
   htmlMode?: HtmlPreviewMode;
+  pdfMode?: PdfViewMode;
+  fileSize?: number;
   warning?: string;
 }
 
@@ -45,6 +57,11 @@ export interface PreviewRenderer {
     mountInfo: HtmlMountInfo | null,
     sourceText: string,
     meta: { name: string; path: string; ext: string }
+  ): Promise<void>;
+  loadPdf?(
+    mountInfo: PdfMountInfo | null,
+    buffer: ArrayBuffer | null,
+    meta: { name: string; path: string; ext: string; size?: number }
   ): Promise<void>;
   refresh?(): Promise<void>;
   setZoom?(zoom: number | 'fit'): void;
@@ -57,6 +74,7 @@ export interface PreviewRenderer {
   nextMatch?(): void;
   prevMatch?(): void;
   setHtmlMode?(mode: HtmlPreviewMode): void;
+  setPdfMode?(mode: PdfViewMode): void;
   onStateChange?(cb: (info: PreviewStateInfo) => void): void;
   destroy(): void;
 }

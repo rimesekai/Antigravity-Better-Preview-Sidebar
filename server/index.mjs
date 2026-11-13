@@ -2,12 +2,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { SidecarApp, Response } from 'sidecar_sdk';
-import { closeHtmlServer, mountHtmlTarget } from './htmlServer.mjs';
+import { closeHtmlServer, mountHtmlTarget, mountPdfTarget } from './htmlServer.mjs';
 import { HttpError, validateFilePath } from './pathSecurity.mjs';
 import { scanWorkspaceFiles } from './workspaceScanner.mjs';
 
 const PLUGIN_VERSION = '0.1.0';
 const MAX_READ_BYTES = 200 * 1024 * 1024; // 200 MB 安全上限
+const MAX_PDF_BYTES = 1024 * 1024 * 1024; // 1 GB PDF 流式预览安全上限
 
 /**
  * 解析插件根目录与 dist/ 产物目录（兼容从 server/index.mjs 与 dist/server.mjs 运行）。
@@ -110,6 +111,7 @@ export function registerRoutes(app, options = {}) {
   const distDir = options.distDir || defaultPaths.distDir;
   const assetsDir = options.assetsDir || defaultPaths.assetsDir;
   const mountHtml = options.mountHtml || mountHtmlTarget;
+  const mountPdf = options.mountPdf || mountPdfTarget;
   const allowedRootsOverride = options.allowedRootsOverride || null;
 
   // 静态页面与脚本资源路由（SidecarApp 为精确匹配）
@@ -119,6 +121,9 @@ export function registerRoutes(app, options = {}) {
   );
   app.page('/app.js', () =>
     serveStaticFile(join(distDir, 'app.js'), 'application/javascript; charset=utf-8', ResponseClass),
+  );
+  app.page('/pdf.worker.js', () =>
+    serveStaticFile(join(distDir, 'pdf.worker.js'), 'application/javascript; charset=utf-8', ResponseClass),
   );
   app.page('/styles.css', () =>
     serveStaticFile(join(distDir, 'styles.css'), 'text/css; charset=utf-8', ResponseClass),
@@ -209,6 +214,34 @@ export function registerRoutes(app, options = {}) {
         entryRelPath: mounted.entryRelPath,
         mountId: mounted.mountId,
         mountRoot: mounted.mountRoot,
+      };
+    }, ResponseClass),
+    'POST',
+  );
+
+  // 挂载 PDF 文件到独立端口 HTTP Range 流式预览服务
+  app.api(
+    '/api/pdf/mount',
+    withErrorHandling(async (data) => {
+      const info = validateFilePath(data.file, {
+        workspaceUris: data.workspaceUris,
+        allowedRootsOverride,
+      });
+
+      if (info.kind !== 'pdf') {
+        throw new HttpError(415, '仅支持将 .pdf 文件挂载到流式预览服务', 'NOT_PDF_FILE');
+      }
+
+      if (info.size > MAX_PDF_BYTES) {
+        throw new HttpError(413, 'PDF 文件体积超过 1GB 预览上限', 'FILE_TOO_LARGE');
+      }
+
+      const mounted = await mountPdf(info.path);
+      return {
+        url: mounted.url,
+        mountId: mounted.mountId,
+        fileName: info.name,
+        size: info.size,
       };
     }, ResponseClass),
     'POST',
