@@ -1,0 +1,266 @@
+import type {
+  FileStatInfo,
+  HtmlMountInfo,
+  WorkspaceFileItem,
+} from '../types/preview';
+
+interface SidecarBridgeLike {
+  fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  getWorkspaceUris?: () => Promise<string[]>;
+  onWorkspaceChange?: (listener: (uris: string[]) => void) => () => void;
+}
+
+interface SidecarWindowLike {
+  sidecar?: SidecarBridgeLike;
+}
+
+/**
+ * Sidecar API 调用异常，包含 HTTP 状态码、机器错误码与中文可读提示。
+ */
+export class SidecarApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly userMessage: string;
+
+  constructor(status: number, code: string, userMessage: string) {
+    super(userMessage);
+    this.name = 'SidecarApiError';
+    this.status = status;
+    this.code = code;
+    this.userMessage = userMessage;
+  }
+}
+
+let cachedWorkspaceUris: string[] | null = null;
+
+/**
+ * 供主题/工作区同步模块写入最新推送的工作区 URI 列表。
+ */
+export function updateCachedWorkspaceUris(uris: string[]): void {
+  cachedWorkspaceUris = Array.isArray(uris) ? [...uris] : [];
+}
+
+function getSidecarBridge(): SidecarBridgeLike | undefined {
+  return (window as unknown as SidecarWindowLike).sidecar;
+}
+
+function getUrlToken(): string | null {
+  try {
+    const token = new URLSearchParams(window.location.search).get('token');
+    return token && token.trim() ? token.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 安全获取当前会话工作区 URI 列表；非 plugin:// 环境或异常时返回空数组而不抛出错误。
+ */
+export async function getWorkspaceUrisSafe(): Promise<string[]> {
+  if (cachedWorkspaceUris !== null) {
+    return [...cachedWorkspaceUris];
+  }
+
+  const bridge = getSidecarBridge();
+  if (!bridge || typeof bridge.getWorkspaceUris !== 'function') {
+    return [];
+  }
+
+  try {
+    const timeoutFallback = new Promise<string[]>((resolve) => {
+      window.setTimeout(() => resolve([]), 1200);
+    });
+    const uris = await Promise.race([bridge.getWorkspaceUris(), timeoutFallback]);
+    if (Array.isArray(uris)) {
+      cachedWorkspaceUris = [...uris];
+      return [...uris];
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 统一发起 Sidecar HTTP 请求：优先使用 window.sidecar.fetch，否则回退到原生 fetch 并附带 ?token= 中的 X-Sidecar-Token。
+ */
+async function sidecarFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const bridge = getSidecarBridge();
+  if (bridge && typeof bridge.fetch === 'function') {
+    return bridge.fetch(url, init);
+  }
+
+  const headers = new Headers(init.headers || undefined);
+  if (!headers.has('Content-Type') && init.body) {
+    headers.set('Content-Type', 'application/json');
+  }
+  const token = getUrlToken();
+  if (token && !headers.has('X-Sidecar-Token')) {
+    headers.set('X-Sidecar-Token', token);
+  }
+
+  return window.fetch(url, {
+    ...init,
+    headers,
+  });
+}
+
+function fallbackMessageByStatus(status: number): string {
+  switch (status) {
+    case 400:
+      return '请求参数无效，请检查文件路径是否正确。';
+    case 401:
+      return '侧边栏访问令牌未授权，请尝试重新打开插件面板。';
+    case 403:
+      return '无权访问目标路径，请确认文件位于当前工作区或允许的本地目录内。';
+    case 404:
+      return '未找到目标文件，可能已被移动或删除。';
+    case 413:
+      return '文件体积超过 200MB 预览上限，无法直接加载。';
+    case 415:
+      return '暂不支持该文件格式，当前仅支持 .pptx、.docx、.html 和 .htm。';
+    default:
+      return status >= 500
+        ? `预览服务内部异常（HTTP ${status}），请稍后重试。`
+        : `请求失败（HTTP ${status}）。`;
+  }
+}
+
+async function parseErrorResponse(res: Response): Promise<SidecarApiError> {
+  let code = `HTTP_${res.status}`;
+  let message = '';
+
+  try {
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const payload = (await res.json()) as { error?: unknown; code?: unknown } | null;
+      if (payload && typeof payload === 'object') {
+        if (typeof payload.code === 'string' && payload.code.trim()) {
+          code = payload.code.trim();
+        }
+        if (typeof payload.error === 'string' && payload.error.trim()) {
+          message = payload.error.trim();
+        }
+      }
+    } else {
+      const text = (await res.text()).trim();
+      if (text) {
+        try {
+          const parsed = JSON.parse(text) as { error?: unknown; code?: unknown };
+          if (typeof parsed.code === 'string' && parsed.code.trim()) {
+            code = parsed.code.trim();
+          }
+          if (typeof parsed.error === 'string' && parsed.error.trim()) {
+            message = parsed.error.trim();
+          }
+        } catch {
+          // 非 JSON 错误正文时保留默认中文状态说明
+        }
+      }
+    }
+  } catch {
+    // 忽略响应解析异常，使用状态码兜底说明
+  }
+
+  return new SidecarApiError(
+    res.status,
+    code,
+    message || fallbackMessageByStatus(res.status),
+  );
+}
+
+async function postJson<T>(endpoint: string, body: Record<string, unknown>): Promise<T> {
+  let res: Response;
+  try {
+    res = await sidecarFetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new SidecarApiError(0, 'NETWORK_ERROR', '无法连接到 Sidecar 预览服务，请确认插件服务正常运行。');
+  }
+
+  if (!res.ok) {
+    throw await parseErrorResponse(res);
+  }
+
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new SidecarApiError(res.status, 'INVALID_JSON', '服务端返回了无法解析的响应数据。');
+  }
+}
+
+/**
+ * 校验目标文件并获取基础元信息（路径、格式分类、大小、修改时间）。
+ */
+export async function statFile(file: string): Promise<FileStatInfo> {
+  const workspaceUris = await getWorkspaceUrisSafe();
+  return postJson<FileStatInfo>('/api/fs/stat', { file, workspaceUris });
+}
+
+/**
+ * 以二进制 ArrayBuffer 读取本地 .pptx / .docx / .html 文件内容。
+ */
+export async function readFileBuffer(file: string): Promise<ArrayBuffer> {
+  const workspaceUris = await getWorkspaceUrisSafe();
+  let res: Response;
+  try {
+    res = await sidecarFetch('/api/fs/read', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ file, workspaceUris }),
+    });
+  } catch {
+    throw new SidecarApiError(0, 'NETWORK_ERROR', '读取文件时网络中断，请检查 Sidecar 服务状态。');
+  }
+
+  if (!res.ok) {
+    throw await parseErrorResponse(res);
+  }
+
+  return res.arrayBuffer();
+}
+
+/**
+ * 以 UTF-8 文本读取文件内容（主要用于 HTML 源码展示）。
+ */
+export async function readFileText(file: string): Promise<string> {
+  const buffer = await readFileBuffer(file);
+  return new TextDecoder('utf-8').decode(buffer);
+}
+
+/**
+ * 扫描当前工作区中所有可预览文档。
+ */
+export async function listWorkspaceFiles(): Promise<WorkspaceFileItem[]> {
+  const workspaceUris = await getWorkspaceUrisSafe();
+  const data = await postJson<{ files?: WorkspaceFileItem[] }>('/api/fs/list', {
+    workspaceUris,
+  });
+  return Array.isArray(data.files) ? data.files : [];
+}
+
+/**
+ * 将本地 HTML 文件挂载到独立跨源预览端口，返回可加载的 URL 与挂载信息。
+ */
+export async function mountHtmlFile(file: string): Promise<HtmlMountInfo> {
+  const workspaceUris = await getWorkspaceUrisSafe();
+  return postJson<HtmlMountInfo>('/api/html/mount', { file, workspaceUris });
+}
+
+/**
+ * 检查 Sidecar 后端健康状态。
+ */
+export async function checkHealth(): Promise<{ status: string; version: string }> {
+  const res = await sidecarFetch('/api/health', { method: 'GET' });
+  if (!res.ok) {
+    throw await parseErrorResponse(res);
+  }
+  return (await res.json()) as { status: string; version: string };
+}
