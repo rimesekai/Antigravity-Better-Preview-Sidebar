@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { SidecarApp, Response } from 'sidecar_sdk';
@@ -6,10 +7,21 @@ import { closeHtmlServer, mountHtmlTarget, mountPdfTarget, mountVideoTarget } fr
 import { HttpError, validateFilePath } from './pathSecurity.mjs';
 import { scanWorkspaceFiles } from './workspaceScanner.mjs';
 
-const PLUGIN_VERSION = '0.1.0';
-const MAX_READ_BYTES = 200 * 1024 * 1024; // 200 MB 安全上限
+const PLUGIN_VERSION = '0.2.0';
+const MAX_PARSED_READ_BYTES = 60 * 1024 * 1024; // 60 MB：Excel/PPT/Word 等需一次性载入渲染进程内存解析的格式上限
+const MAX_TEXT_READ_BYTES = 80 * 1024 * 1024; // 80 MB：其余由 /api/fs/read 直接读取的文件上限
 const MAX_PDF_BYTES = 1024 * 1024 * 1024; // 1 GB PDF 流式预览安全上限
 const MAX_VIDEO_BYTES = 4 * 1024 * 1024 * 1024; // 4 GB MP4 流式播放安全上限
+
+// 按文件路径缓存静态资源内容，并以 stat.mtimeMs + size 判定失效，兼顾高并发读取性能与开发热构建刷新
+const staticFileCache = new Map();
+
+function getReadLimitBytes(kind) {
+  if (kind === 'excel' || kind === 'ppt' || kind === 'word') {
+    return MAX_PARSED_READ_BYTES;
+  }
+  return MAX_TEXT_READ_BYTES;
+}
 
 /**
  * 解析插件根目录与 dist/ 产物目录（兼容从 server/index.mjs 与 dist/server.mjs 运行）。
@@ -67,14 +79,25 @@ export function withErrorHandling(handler, ResponseClass = Response) {
 }
 
 /**
- * 读取静态文件内容并构造 Response；若缺失则返回 404。
+ * 读取静态文件内容并构造 Response（带 mtimeMs/size 校验的内存缓存）；若缺失则返回 404。
  * @param {string} filePath
  * @param {string} contentType
  * @param {typeof Response} [ResponseClass]
  * @returns {Response}
  */
 function serveStaticFile(filePath, contentType, ResponseClass = Response) {
-  if (!existsSync(filePath)) {
+  let stat;
+  try {
+    stat = statSync(filePath);
+    if (!stat.isFile()) {
+      stat = null;
+    }
+  } catch {
+    stat = null;
+  }
+
+  if (!stat) {
+    staticFileCache.delete(filePath);
     return new ResponseClass('Not Found', {
       contentType: 'text/plain; charset=utf-8',
       status: 404,
@@ -85,7 +108,19 @@ function serveStaticFile(filePath, contentType, ResponseClass = Response) {
     });
   }
 
-  const content = readFileSync(filePath);
+  const cached = staticFileCache.get(filePath);
+  let content;
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    content = cached.content;
+  } else {
+    content = readFileSync(filePath);
+    staticFileCache.set(filePath, {
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      content,
+    });
+  }
+
   return new ResponseClass(content, {
     contentType,
     status: 200,
@@ -161,20 +196,22 @@ export function registerRoutes(app, options = {}) {
     'POST',
   );
 
-  // 二进制流读取（用于 .pptx / .docx）
+  // 二进制流异步读取（用于 .pptx / .docx / .xlsx / .xls / .csv / .tsv / .html 等）
   app.api(
     '/api/fs/read',
-    withErrorHandling((data) => {
+    withErrorHandling(async (data) => {
       const info = validateFilePath(data.file, {
         workspaceUris: data.workspaceUris,
         allowedRootsOverride,
       });
 
-      if (info.size > MAX_READ_BYTES) {
-        throw new HttpError(413, '文件体积超过 200MB 预览上限', 'FILE_TOO_LARGE');
+      const limitBytes = getReadLimitBytes(info.kind);
+      if (info.size > limitBytes) {
+        const limitMb = Math.round(limitBytes / (1024 * 1024));
+        throw new HttpError(413, `文件体积超过 ${limitMb}MB 内存解析预览上限`, 'FILE_TOO_LARGE');
       }
 
-      const buffer = readFileSync(info.path);
+      const buffer = await readFile(info.path);
       return new ResponseClass(buffer, {
         contentType: 'application/octet-stream',
         status: 200,

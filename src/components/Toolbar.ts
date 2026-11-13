@@ -116,7 +116,108 @@ export function createToolbar(
     autoRefresh: true,
     drawerOpen: false,
   };
-  let lastSubmittedQuery = '';
+
+  interface SearchClusterController {
+    clusterEl: HTMLElement;
+    inputEl: HTMLInputElement;
+    setPlaceholder: (placeholder: string, ariaLabel: string) => void;
+    updateMatches: (totalMatches: number, activeMatch: number) => void;
+    reset: () => void;
+  }
+
+  /** 创建紧凑搜索控件组（PPT / PDF / Excel / Word 复用）。 */
+  function createSearchCluster(placeholder: string, ariaLabel: string): SearchClusterController {
+    let lastQuery = '';
+
+    const clusterEl = document.createElement('div');
+    clusterEl.className = 'fp-cluster fp-ppt-search';
+
+    const inputEl = document.createElement('input');
+    inputEl.type = 'search';
+    inputEl.className = 'fp-search-input';
+    inputEl.placeholder = placeholder;
+    inputEl.setAttribute('aria-label', ariaLabel);
+
+    const triggerSearch = () => {
+      const query = inputEl.value.trim();
+      if (query === lastQuery && query) {
+        callbacks.onNextMatch();
+        return;
+      }
+      lastQuery = query;
+      void callbacks.onSearch(query);
+    };
+
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey && inputEl.value.trim() === lastQuery && lastQuery) {
+          callbacks.onPrevMatch();
+          return;
+        }
+        triggerSearch();
+      } else if (e.key === 'Escape') {
+        inputEl.value = '';
+        lastQuery = '';
+        void callbacks.onSearch('');
+      }
+    });
+
+    inputEl.addEventListener('input', () => {
+      if (!inputEl.value.trim() && lastQuery) {
+        lastQuery = '';
+        void callbacks.onSearch('');
+      }
+    });
+
+    const countEl = document.createElement('span');
+    countEl.className = 'fp-search-count';
+    countEl.hidden = true;
+
+    const prevBtn = document.createElement('button');
+    prevBtn.type = 'button';
+    prevBtn.className = 'fp-btn fp-btn-icon';
+    prevBtn.textContent = '↑';
+    prevBtn.title = '上一个匹配项';
+    prevBtn.hidden = true;
+    prevBtn.addEventListener('click', () => callbacks.onPrevMatch());
+
+    const nextBtn = document.createElement('button');
+    nextBtn.type = 'button';
+    nextBtn.className = 'fp-btn fp-btn-icon';
+    nextBtn.textContent = '↓';
+    nextBtn.title = '下一个匹配项';
+    nextBtn.hidden = true;
+    nextBtn.addEventListener('click', () => callbacks.onNextMatch());
+
+    clusterEl.append(inputEl, countEl, prevBtn, nextBtn);
+
+    return {
+      clusterEl,
+      inputEl,
+      setPlaceholder(nextPlaceholder: string, nextAriaLabel: string): void {
+        inputEl.placeholder = nextPlaceholder;
+        inputEl.setAttribute('aria-label', nextAriaLabel);
+      },
+      updateMatches(totalMatches: number, activeMatch: number): void {
+        const hasQuery = Boolean(lastQuery);
+        countEl.hidden = !hasQuery && totalMatches === 0;
+        if (hasQuery || totalMatches > 0) {
+          countEl.textContent = totalMatches > 0 ? `${activeMatch}/${totalMatches}` : '0/0';
+        }
+        const navVisible = totalMatches > 0;
+        prevBtn.hidden = !navVisible;
+        nextBtn.hidden = !navVisible;
+      },
+      reset(): void {
+        lastQuery = '';
+        inputEl.value = '';
+        countEl.hidden = true;
+        prevBtn.hidden = true;
+        nextBtn.hidden = true;
+      },
+    };
+  }
 
   const root = document.createElement('div');
   root.className = 'fp-toolbar';
@@ -316,71 +417,8 @@ export function createToolbar(
 
   pptZoomCluster.append(pptFitBtn, pptZoomOutBtn, pptZoomText, pptZoomInBtn);
 
-  // PPT 紧凑搜索框
-  const pptSearchCluster = document.createElement('div');
-  pptSearchCluster.className = 'fp-cluster fp-ppt-search';
-
-  const searchInput = document.createElement('input');
-  searchInput.type = 'search';
-  searchInput.className = 'fp-search-input';
-  searchInput.placeholder = '搜索幻灯片 (回车)';
-  searchInput.setAttribute('aria-label', '搜索幻灯片文本');
-
-  const triggerSearch = () => {
-    const query = searchInput.value.trim();
-    if (query === lastSubmittedQuery && query) {
-      callbacks.onNextMatch();
-      return;
-    }
-    lastSubmittedQuery = query;
-    void callbacks.onSearch(query);
-  };
-
-  searchInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (e.shiftKey) {
-        if (searchInput.value.trim() === lastSubmittedQuery && lastSubmittedQuery) {
-          callbacks.onPrevMatch();
-          return;
-        }
-      }
-      triggerSearch();
-    } else if (e.key === 'Escape') {
-      searchInput.value = '';
-      lastSubmittedQuery = '';
-      void callbacks.onSearch('');
-    }
-  });
-
-  searchInput.addEventListener('input', () => {
-    if (!searchInput.value.trim() && lastSubmittedQuery) {
-      lastSubmittedQuery = '';
-      void callbacks.onSearch('');
-    }
-  });
-
-  const searchCountEl = document.createElement('span');
-  searchCountEl.className = 'fp-search-count';
-  searchCountEl.hidden = true;
-
-  const prevMatchBtn = document.createElement('button');
-  prevMatchBtn.type = 'button';
-  prevMatchBtn.className = 'fp-btn fp-btn-icon';
-  prevMatchBtn.textContent = '↑';
-  prevMatchBtn.title = '上一个匹配项';
-  prevMatchBtn.hidden = true;
-  prevMatchBtn.addEventListener('click', () => callbacks.onPrevMatch());
-
-  const nextMatchBtn = document.createElement('button');
-  nextMatchBtn.type = 'button';
-  nextMatchBtn.className = 'fp-btn fp-btn-icon';
-  nextMatchBtn.textContent = '↓';
-  nextMatchBtn.title = '下一个匹配项';
-  nextMatchBtn.hidden = true;
-  nextMatchBtn.addEventListener('click', () => callbacks.onNextMatch());
-
-  pptSearchCluster.append(searchInput, searchCountEl, prevMatchBtn, nextMatchBtn);
+  // PPT / PDF / Excel 紧凑搜索框
+  const pptSearch = createSearchCluster('搜索幻灯片 (回车)', '搜索幻灯片文本');
 
   pptGroup.append(
     pptLayoutSeg,
@@ -388,7 +426,7 @@ export function createToolbar(
     pptPageCluster,
     sheetNamePill,
     pptZoomCluster,
-    pptSearchCluster,
+    pptSearch.clusterEl,
   );
 
   // --- Word 工具条 ---
@@ -431,11 +469,9 @@ export function createToolbar(
 
   wordZoomCluster.append(wordFitBtn, wordZoomOutBtn, wordZoomText, wordZoomInBtn);
 
-  const wordHint = document.createElement('span');
-  wordHint.className = 'fp-toolbar-hint';
-  wordHint.textContent = '支持按侧边栏宽度自动排版缩放';
+  const wordSearch = createSearchCluster('搜索文档内容 (回车)', '搜索 Word 文档内容');
 
-  wordGroup.append(wordZoomCluster, wordHint);
+  wordGroup.append(wordZoomCluster, wordSearch.clusterEl);
 
   // --- HTML 工具条 ---
   const htmlGroup = document.createElement('div');
@@ -482,31 +518,28 @@ export function createToolbar(
     pptThumbBtn.hidden = isExcel;
     pptPageCluster.hidden = false;
     pptZoomCluster.hidden = false;
-    pptSearchCluster.hidden = false;
+    pptSearch.clusterEl.hidden = false;
 
     if (isExcel) {
       prevPageBtn.title = '上一工作表';
       nextPageBtn.title = '下一工作表';
       pageInput.setAttribute('aria-label', '当前工作表序号');
       pptFitBtn.title = '重置为标准视图';
-      searchInput.placeholder = '搜索表格内容 (回车)';
-      searchInput.setAttribute('aria-label', '搜索表格内容');
+      pptSearch.setPlaceholder('搜索表格内容 (回车)', '搜索表格内容');
     } else if (isPdf) {
       prevPageBtn.title = '上一页';
       nextPageBtn.title = '下一页';
       pageInput.setAttribute('aria-label', '当前页码');
       pptFitBtn.title = '自适应侧边栏宽度';
       pptThumbBtn.title = '切换页面缩略图栏';
-      searchInput.placeholder = '搜索 PDF 文本 (回车)';
-      searchInput.setAttribute('aria-label', '搜索 PDF 文本');
+      pptSearch.setPlaceholder('搜索 PDF 文本 (回车)', '搜索 PDF 文本');
     } else {
       prevPageBtn.title = '上一页';
       nextPageBtn.title = '下一页';
       pageInput.setAttribute('aria-label', '当前页码');
       pptFitBtn.title = '自适应侧边栏宽度';
       pptThumbBtn.title = '切换幻灯片缩略图栏';
-      searchInput.placeholder = '搜索幻灯片 (回车)';
-      searchInput.setAttribute('aria-label', '搜索幻灯片文本');
+      pptSearch.setPlaceholder('搜索幻灯片 (回车)', '搜索幻灯片文本');
     }
 
     const activeSheet = preview?.activeSheet?.trim();
@@ -546,14 +579,7 @@ export function createToolbar(
 
     const totalMatches = preview?.searchMatches ?? 0;
     const activeMatch = preview?.activeMatch ?? 0;
-    const hasSearchQuery = Boolean(lastSubmittedQuery);
-    searchCountEl.hidden = !hasSearchQuery && totalMatches === 0;
-    if (hasSearchQuery || totalMatches > 0) {
-      searchCountEl.textContent = totalMatches > 0 ? `${activeMatch}/${totalMatches}` : '0/0';
-    }
-    const navVisible = totalMatches > 0;
-    prevMatchBtn.hidden = !navVisible;
-    nextMatchBtn.hidden = !navVisible;
+    pptSearch.updateMatches(totalMatches, activeMatch);
   }
 
   function updateWordControls(preview: PreviewStateInfo | null): void {
@@ -563,6 +589,10 @@ export function createToolbar(
     wordZoomText.textContent = `${Math.round(zoom * 100)}%`;
     wordZoomOutBtn.disabled = zoom <= 0.5;
     wordZoomInBtn.disabled = zoom >= 2.0;
+
+    const totalMatches = preview?.searchMatches ?? 0;
+    const activeMatch = preview?.activeMatch ?? 0;
+    wordSearch.updateMatches(totalMatches, activeMatch);
   }
 
   function updateHtmlControls(preview: PreviewStateInfo | null, file: ToolbarFileMeta): void {
@@ -658,15 +688,35 @@ export function createToolbar(
     }
   }
 
+  function handleGlobalFindShortcut(e: KeyboardEvent): void {
+    if (!latestState.visible || latestState.hasError || !latestState.file) return;
+    if (e.defaultPrevented || e.isComposing) return;
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+    if (e.key.toLowerCase() !== 'f') return;
+
+    const kind = latestState.file.kind;
+    let targetInput: HTMLInputElement | null = null;
+    if (kind === 'ppt' || kind === 'pdf' || kind === 'excel') {
+      targetInput = pptSearch.inputEl;
+    } else if (kind === 'word') {
+      targetInput = wordSearch.inputEl;
+    }
+    if (!targetInput) return;
+
+    e.preventDefault();
+    targetInput.focus();
+    targetInput.select();
+  }
+
+  window.addEventListener('keydown', handleGlobalFindShortcut);
+
   function resetSearch(): void {
-    lastSubmittedQuery = '';
-    searchInput.value = '';
-    searchCountEl.hidden = true;
-    prevMatchBtn.hidden = true;
-    nextMatchBtn.hidden = true;
+    pptSearch.reset();
+    wordSearch.reset();
   }
 
   function destroy(): void {
+    window.removeEventListener('keydown', handleGlobalFindShortcut);
     root.remove();
   }
 

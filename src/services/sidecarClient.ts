@@ -118,7 +118,7 @@ function fallbackMessageByStatus(status: number): string {
     case 404:
       return '未找到目标文件，可能已被移动或删除。';
     case 413:
-      return '文件体积超过 200MB 预览上限，无法直接加载。';
+      return '文件体积超过内存解析预览上限（常规文档上限 60MB），无法直接加载。';
     case 415:
       return '暂不支持该文件格式，当前仅支持 .pptx、.docx、.xlsx、.xls、.csv、.tsv、.pdf、.mp4、.html 和 .htm。';
     default:

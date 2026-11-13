@@ -1,11 +1,11 @@
 ---
 name: file-preview
-description: 在 Antigravity 桌面端侧边栏打开并预览本地 PPT（.pptx）、Word（.docx）、Excel（.xlsx/.xls/.csv/.tsv，支持多 Sheet 工作表切换、公式/合并单元格展示及搜索）、PDF（.pdf，含超过 20MB 的大体积文件流式预览）、MP4（.mp4，含超过 20MB 的大体积视频流式播放）与 HTML（.html/.htm）文件。当用户要求预览、查看或打开这些文件，或在任务产出中包含这些格式文件时触发。
+description: 在 Antigravity 桌面端侧边栏打开并预览本地 PPT（.pptx）、Word（.docx，支持全文搜索）、Excel（.xlsx/.xls/.csv/.tsv，支持多 Sheet 工作表切换、公式/合并单元格展示及搜索）、PDF（.pdf，含超过 20MB 的大体积文件流式预览）、MP4（.mp4，含超过 20MB 的大体积视频流式播放）与 HTML（.html/.htm）文件。当用户要求预览、查看或打开这些文件，或在任务产出中包含这些格式文件时触发。
 ---
 
 # File Preview 文件预览助手
 
-本插件在 Antigravity 桌面端辅助侧边栏（Aux Pane）提供本地 `.pptx`、`.docx`、`.xlsx`、`.xls`、`.csv`、`.tsv`、`.pdf`、`.mp4`、`.html` 和 `.htm` 文件的高保真预览能力，支持 Excel 多 Sheet 工作表切换、公式与合并单元格检视及跨表搜索，并针对超过 20MB 的大体积 `.pdf` 与 `.mp4` 文件提供基于 HTTP Range 的按需分片流式预览与播放。
+本插件在 Antigravity 桌面端辅助侧边栏（Aux Pane）提供本地 `.pptx`、`.docx`、`.xlsx`、`.xls`、`.csv`、`.tsv`、`.pdf`、`.mp4`、`.html` 和 `.htm` 文件的高保真预览能力，支持 Word 全文搜索、Excel 多 Sheet 工作表切换、公式与合并单元格检视及跨表搜索，并针对超过 20MB 的大体积 `.pdf` 与 `.mp4` 文件提供基于 HTTP Range 的按需分片流式预览与播放。
 
 ## 如何打开侧边栏预览器
 

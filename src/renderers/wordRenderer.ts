@@ -3,6 +3,47 @@ import type { PreviewRenderer, PreviewStateInfo } from '../types/preview';
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2.0;
+const MAX_WORD_MATCHES = 2000;
+const FAR_SECTION_JUMP = 4;
+const BLOCK_CONTAINER_TAGS = new Set([
+  'P',
+  'DIV',
+  'SECTION',
+  'ARTICLE',
+  'HEADER',
+  'FOOTER',
+  'ASIDE',
+  'LI',
+  'TD',
+  'TH',
+  'CAPTION',
+  'H1',
+  'H2',
+  'H3',
+  'H4',
+  'H5',
+  'H6',
+  'BLOCKQUOTE',
+  'PRE',
+  'TR',
+]);
+
+interface TextRunSlice {
+  node: Text;
+  start: number;
+  end: number;
+}
+
+function getNearestBlockContainer(node: Node, boundary: HTMLElement): Element | null {
+  let curr: Node | null = node.parentNode;
+  while (curr && curr !== boundary) {
+    if (curr instanceof Element && BLOCK_CONTAINER_TAGS.has(curr.tagName)) {
+      return curr;
+    }
+    curr = curr.parentNode;
+  }
+  return boundary;
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -33,6 +74,10 @@ export function createWordRenderer(): PreviewRenderer {
   let lastBuffer: ArrayBuffer | null = null;
   let lastMeta: { name: string; path: string; ext: string } | null = null;
 
+  let searchQuery = '';
+  let matchGroups: HTMLElement[][] = [];
+  let activeMatchIndex = -1;
+
   const stateListeners = new Set<(info: PreviewStateInfo) => void>();
 
   function emitState(warning?: string): void {
@@ -42,6 +87,8 @@ export function createWordRenderer(): PreviewRenderer {
       totalPages: totalPages > 0 ? totalPages : undefined,
       zoom: roundZoom(effectiveZoom),
       fitMode,
+      searchMatches: matchGroups.length,
+      activeMatch: activeMatchIndex >= 0 ? activeMatchIndex + 1 : 0,
       warning,
     };
     for (const cb of stateListeners) {
@@ -150,16 +197,186 @@ export function createWordRenderer(): PreviewRenderer {
     });
   }
 
-  async function renderCurrentBuffer(): Promise<void> {
+  function clearSearchHighlights(): void {
+    if (stageEl) {
+      const marks = stageEl.querySelectorAll('mark.fp-word-search-hit');
+      const dirtyParents = new Set<Node>();
+      for (const mark of marks) {
+        const parent = mark.parentNode;
+        if (!parent) continue;
+        parent.replaceChild(document.createTextNode(mark.textContent ?? ''), mark);
+        dirtyParents.add(parent);
+      }
+      for (const parent of dirtyParents) {
+        if (parent instanceof Element || parent instanceof DocumentFragment) {
+          parent.normalize();
+        }
+      }
+    }
+    matchGroups = [];
+  }
+
+  function applySearchHighlights(query: string): void {
+    clearSearchHighlights();
+    const trimmed = query.trim();
+    if (!trimmed || !stageEl) return;
+
+    const queryLower = trimmed.toLowerCase();
+    const walker = document.createTreeWalker(stageEl, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const parentTag = node.parentElement?.tagName;
+        if (parentTag === 'STYLE' || parentTag === 'SCRIPT' || parentTag === 'NOSCRIPT') {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return node.nodeValue && node.nodeValue.length > 0
+          ? NodeFilter.FILTER_ACCEPT
+          : NodeFilter.FILTER_REJECT;
+      },
+    });
+
+    // 按块级容器分组连续 Text 节点，既支持同一段落内跨 span run 匹配，又不跨段错配
+    const groups: Text[][] = [];
+    let currentBlock: Element | null = null;
+    let currentNodes: Text[] = [];
+    let walked = walker.nextNode();
+    while (walked) {
+      const textNode = walked as Text;
+      const block = getNearestBlockContainer(textNode, stageEl);
+      if (block !== currentBlock && currentNodes.length > 0) {
+        groups.push(currentNodes);
+        currentNodes = [];
+      }
+      currentBlock = block;
+      currentNodes.push(textNode);
+      walked = walker.nextNode();
+    }
+    if (currentNodes.length > 0) {
+      groups.push(currentNodes);
+    }
+
+    const nextMatchGroups: HTMLElement[][] = [];
+
+    for (const nodes of groups) {
+      if (nextMatchGroups.length >= MAX_WORD_MATCHES) break;
+
+      const slices: TextRunSlice[] = [];
+      let fullText = '';
+      for (const node of nodes) {
+        const val = node.nodeValue ?? '';
+        if (!val) continue;
+        const start = fullText.length;
+        fullText += val;
+        slices.push({ node, start, end: fullText.length });
+      }
+      if (!fullText) continue;
+
+      const lowerFull = fullText.toLowerCase();
+      const groupMatches: Array<{ start: number; end: number }> = [];
+      let cursor = 0;
+      while (cursor <= lowerFull.length - queryLower.length) {
+        if (nextMatchGroups.length + groupMatches.length >= MAX_WORD_MATCHES) break;
+        const idx = lowerFull.indexOf(queryLower, cursor);
+        if (idx === -1) break;
+        groupMatches.push({ start: idx, end: idx + queryLower.length });
+        cursor = idx + Math.max(1, queryLower.length);
+      }
+
+      if (groupMatches.length === 0) continue;
+
+      const createdForGroup: HTMLElement[][] = Array.from({ length: groupMatches.length }, () => []);
+
+      // 从后往前切分每个涉及到的 Text 节点，确保前面的偏移量不受影响
+      for (let mIdx = groupMatches.length - 1; mIdx >= 0; mIdx--) {
+        const { start: mStart, end: mEnd } = groupMatches[mIdx];
+        for (let sIdx = slices.length - 1; sIdx >= 0; sIdx--) {
+          const slice = slices[sIdx];
+          if (slice.end <= mStart || slice.start >= mEnd) continue;
+
+          const localStart = Math.max(0, mStart - slice.start);
+          const localEnd = Math.min(slice.end - slice.start, mEnd - slice.start);
+          if (localEnd <= localStart) continue;
+
+          const targetNode = slice.node;
+          const tailLen = (targetNode.nodeValue?.length ?? 0) - localEnd;
+          if (tailLen > 0) {
+            targetNode.splitText(localEnd);
+          }
+          const hitNode = localStart > 0 ? targetNode.splitText(localStart) : targetNode;
+          const mark = document.createElement('mark');
+          mark.className = 'fp-word-search-hit';
+          hitNode.parentNode?.replaceChild(mark, hitNode);
+          mark.appendChild(hitNode);
+          createdForGroup[mIdx].unshift(mark);
+        }
+      }
+
+      for (const marks of createdForGroup) {
+        if (marks.length > 0) {
+          nextMatchGroups.push(marks);
+        }
+      }
+    }
+
+    matchGroups = nextMatchGroups;
+  }
+
+  function focusActiveMatch(scroll = true): void {
+    if (destroyed || !stageEl) return;
+
+    const prevActiveMarks = stageEl.querySelectorAll('mark.fp-word-search-hit.is-active');
+    for (const el of prevActiveMarks) {
+      el.classList.remove('is-active');
+    }
+
+    if (activeMatchIndex < 0 || activeMatchIndex >= matchGroups.length) {
+      return;
+    }
+
+    const activeMarks = matchGroups[activeMatchIndex];
+    for (const mark of activeMarks) {
+      mark.classList.add('is-active');
+    }
+
+    const firstMark = activeMarks[0];
+    if (!firstMark) return;
+
+    const sections = getPageSections();
+    const hostSection = firstMark.closest<HTMLElement>('.docx-wrapper > section.docx');
+    const targetSectionIdx = hostSection ? sections.indexOf(hostSection) : -1;
+    const prevPageNum = currentPage;
+    if (targetSectionIdx >= 0) {
+      currentPage = targetSectionIdx + 1;
+    }
+
+    if (scroll) {
+      const isFarJump = Math.abs(currentPage - prevPageNum) > FAR_SECTION_JUMP;
+      firstMark.scrollIntoView({
+        behavior: isFarJump ? 'auto' : 'smooth',
+        block: 'center',
+        inline: 'nearest',
+      });
+    }
+  }
+
+  async function renderCurrentBuffer(preserveViewState = false): Promise<void> {
     if (destroyed || !stageEl || !lastBuffer) return;
     if (lastBuffer.byteLength === 0) {
       throw new Error('Word 文档内容为空，无法渲染');
     }
 
+    const prevScrollTop = preserveViewState && viewportEl ? viewportEl.scrollTop : 0;
+    const prevScrollLeft = preserveViewState && viewportEl ? viewportEl.scrollLeft : 0;
+    const prevActiveIdx = preserveViewState ? activeMatchIndex : -1;
+
     const gen = ++loadGeneration;
+    clearSearchHighlights();
     stageEl.innerHTML = '';
     totalPages = 0;
-    currentPage = 1;
+    if (!preserveViewState) {
+      currentPage = 1;
+      searchQuery = '';
+      activeMatchIndex = -1;
+    }
     if (sizerEl) {
       sizerEl.style.width = '';
       sizerEl.style.height = '';
@@ -183,12 +400,18 @@ export function createWordRenderer(): PreviewRenderer {
       return;
     }
 
-    if (viewportEl) {
-      viewportEl.scrollTop = 0;
-      viewportEl.scrollLeft = 0;
+    if (preserveViewState && searchQuery) {
+      applySearchHighlights(searchQuery);
+      activeMatchIndex =
+        matchGroups.length > 0 ? clamp(Math.max(0, prevActiveIdx), 0, matchGroups.length - 1) : -1;
+      focusActiveMatch(false);
     }
 
     updateLayout();
+    if (viewportEl) {
+      viewportEl.scrollTop = prevScrollTop;
+      viewportEl.scrollLeft = prevScrollLeft;
+    }
     // Re-check once images/fonts settle on next frame
     scheduleLayout();
     emitState();
@@ -236,12 +459,18 @@ export function createWordRenderer(): PreviewRenderer {
     async loadBuffer(buffer: ArrayBuffer, meta: { name: string; path: string; ext: string }): Promise<void> {
       lastBuffer = buffer;
       lastMeta = meta;
-      await renderCurrentBuffer();
+      await renderCurrentBuffer(false);
+    },
+
+    async reloadBuffer(buffer: ArrayBuffer, meta: { name: string; path: string; ext: string }): Promise<void> {
+      lastBuffer = buffer;
+      lastMeta = meta;
+      await renderCurrentBuffer(true);
     },
 
     async refresh(): Promise<void> {
       if (!lastBuffer || !lastMeta) return;
-      await renderCurrentBuffer();
+      await renderCurrentBuffer(true);
     },
 
     setZoom(zoom: number | 'fit'): void {
@@ -270,6 +499,7 @@ export function createWordRenderer(): PreviewRenderer {
 
     goToPage(page: number): void {
       if (!viewportEl || totalPages <= 0 || !Number.isFinite(page)) return;
+      const prevPageNum = currentPage;
       const target = clamp(Math.round(page), 1, totalPages);
       const sections = getPageSections();
       const targetSection = sections[target - 1];
@@ -277,9 +507,42 @@ export function createWordRenderer(): PreviewRenderer {
         const vpRect = viewportEl.getBoundingClientRect();
         const secRect = targetSection.getBoundingClientRect();
         const targetTop = viewportEl.scrollTop + (secRect.top - vpRect.top) - 12;
-        viewportEl.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+        const behavior: ScrollBehavior =
+          Math.abs(target - prevPageNum) > FAR_SECTION_JUMP ? 'auto' : 'smooth';
+        viewportEl.scrollTo({ top: Math.max(0, targetTop), behavior });
       }
       currentPage = target;
+      emitState();
+    },
+
+    async search(query: string): Promise<{ total: number; current: number }> {
+      searchQuery = query.trim();
+      activeMatchIndex = -1;
+      applySearchHighlights(searchQuery);
+
+      if (!searchQuery || matchGroups.length === 0) {
+        focusActiveMatch(false);
+        emitState();
+        return { total: 0, current: 0 };
+      }
+
+      activeMatchIndex = 0;
+      focusActiveMatch(true);
+      emitState();
+      return { total: matchGroups.length, current: 1 };
+    },
+
+    nextMatch(): void {
+      if (matchGroups.length === 0) return;
+      activeMatchIndex = (activeMatchIndex + 1) % matchGroups.length;
+      focusActiveMatch(true);
+      emitState();
+    },
+
+    prevMatch(): void {
+      if (matchGroups.length === 0) return;
+      activeMatchIndex = (activeMatchIndex - 1 + matchGroups.length) % matchGroups.length;
+      focusActiveMatch(true);
       emitState();
     },
 
@@ -290,6 +553,9 @@ export function createWordRenderer(): PreviewRenderer {
     destroy(): void {
       destroyed = true;
       loadGeneration++;
+      clearSearchHighlights();
+      searchQuery = '';
+      activeMatchIndex = -1;
 
       if (rafLayoutId !== null) {
         cancelAnimationFrame(rafLayoutId);

@@ -3,7 +3,7 @@
 当工作区或当前对话任务中涉及以下本地文件时，请在回复中主动向用户提供 File Preview 侧边栏预览入口 `[File Preview](sidecar://file-preview/viewer/)`：
 
 - `.pptx`（PowerPoint 演示文稿）
-- `.docx`（Word 文档）
+- `.docx`（Word 文档，支持全文搜索与定位）
 - `.xlsx` / `.xls` / `.csv` / `.tsv`（Excel 表格与 CSV/TSV 数据表，支持多 Sheet 工作表切换、公式与合并单元格展示及搜索）
 - `.html` / `.htm`（本地网页文件）
 - `.pdf` 文件（尤其是体积超过 20MB / `20,971,520` 字节的大体积 PDF）

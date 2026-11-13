@@ -567,6 +567,10 @@ function bootstrap(): void {
       const stat = await statFile(rawPath);
       if (reqId !== loadRequestSeq) return;
 
+      const canReuseRenderer = Boolean(
+        isSameDiskFile && activeRenderer && previewState?.kind === stat.kind,
+      );
+
       if (stat.kind === 'html') {
         const [mountInfo, sourceText] = await Promise.all([
           mountHtmlFile(stat.path),
@@ -575,14 +579,20 @@ function bootstrap(): void {
         if (reqId !== loadRequestSeq) return;
 
         currentSource = { type: 'disk', path: stat.path, stat };
-        const renderer = mountRendererWithState('html', preserved);
-        await renderer.loadHtml?.(mountInfo, sourceText, {
+        const htmlMeta = {
           name: stat.name,
           path: stat.path,
           ext: stat.ext,
-        });
+        };
+        if (canReuseRenderer && activeRenderer?.loadHtml) {
+          await activeRenderer.loadHtml(mountInfo, sourceText, htmlMeta);
+        } else {
+          const renderer = mountRendererWithState('html', preserved);
+          await renderer.loadHtml?.(mountInfo, sourceText, htmlMeta);
+          if (reqId !== loadRequestSeq) return;
+          applyPreservedViewOptions(renderer, 'html', preserved);
+        }
         if (reqId !== loadRequestSeq) return;
-        applyPreservedViewOptions(renderer, 'html', preserved);
       } else if (stat.kind === 'pdf') {
         const mountInfo = await mountPdfFile(stat.path);
         if (reqId !== loadRequestSeq) return;
@@ -615,14 +625,20 @@ function bootstrap(): void {
         if (reqId !== loadRequestSeq) return;
 
         currentSource = { type: 'disk', path: stat.path, stat };
-        const renderer = mountRendererWithState(stat.kind, preserved);
-        await renderer.loadBuffer?.(buffer, {
+        const bufferMeta = {
           name: stat.name,
           path: stat.path,
           ext: stat.ext,
-        });
+        };
+        if (canReuseRenderer && activeRenderer?.reloadBuffer) {
+          await activeRenderer.reloadBuffer(buffer, bufferMeta);
+        } else {
+          const renderer = mountRendererWithState(stat.kind, preserved);
+          await renderer.loadBuffer?.(buffer, bufferMeta);
+          if (reqId !== loadRequestSeq) return;
+          applyPreservedViewOptions(renderer, stat.kind, preserved);
+        }
         if (reqId !== loadRequestSeq) return;
-        applyPreservedViewOptions(renderer, stat.kind, preserved);
       }
 
       activeError = null;

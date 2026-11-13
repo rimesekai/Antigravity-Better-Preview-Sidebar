@@ -57,6 +57,19 @@
   margin-bottom: 0 !important;
 }
 
+.fp-word-search-hit {
+  background: rgba(250, 204, 21, 0.45);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0;
+}
+
+.fp-word-search-hit.is-active {
+  background: rgba(249, 115, 22, 0.82);
+  color: #ffffff;
+  box-shadow: 0 0 0 1px rgba(234, 88, 12, 0.9);
+}
+
 /* ==========================================================================
  * PPT Renderer (.fp-ppt-*)
  * ========================================================================== */
@@ -814,6 +827,12 @@
   background: var(--fp-active-soft);
 }
 
+.fp-excel-copy-btn.is-copy-failed {
+  border-color: var(--fp-error);
+  color: var(--fp-error);
+  background: rgba(239, 68, 68, 0.1);
+}
+
 .fp-excel-truncation-banner {
   flex: 0 0 auto;
   display: flex;
@@ -830,6 +849,13 @@
 
 .fp-excel-truncation-text {
   min-width: 0;
+}
+
+.fp-excel-banner-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .fp-excel-load-all-btn {

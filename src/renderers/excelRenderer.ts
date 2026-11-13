@@ -1,10 +1,15 @@
 import * as XLSX from 'xlsx';
 import type { PreviewRenderer, PreviewStateInfo } from '../types/preview';
+import { copyTextToClipboard } from '../utils/clipboard';
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2.0;
 const MAX_INITIAL_ROWS = 2000;
-const MAX_COLS = 100;
+const ROW_BATCH_SIZE = 2000;
+const MAX_RENDER_ROWS_HARD = 20000;
+const MAX_INITIAL_COLS = 100;
+const COL_BATCH_SIZE = 100;
+const MAX_RENDER_COLS_HARD = 500;
 const DEFAULT_COL_WIDTH_PX = 110;
 const MIN_COL_WIDTH_PX = 64;
 const MAX_COL_WIDTH_PX = 360;
@@ -13,6 +18,12 @@ const ROW_HEADER_WIDTH_PX = 52;
 interface MergeMasterInfo {
   rowSpan: number;
   colSpan: number;
+  rangeRef: string;
+}
+
+interface MergeSpanInfo {
+  endR: number;
+  endC: number;
   rangeRef: string;
 }
 
@@ -27,8 +38,82 @@ interface SelectedCellInfo {
   sheetIndex: number;
   r: number;
   c: number;
+  endR: number;
+  endC: number;
   addr: string;
   displayRef: string;
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+}
+
+function hasCellContent(cell: XLSX.CellObject | undefined): boolean {
+  if (!cell) return false;
+  if (cell.f !== undefined && cell.f !== '') return true;
+  if (cell.v !== undefined && cell.v !== null && cell.v !== '') return true;
+  if (cell.w !== undefined && cell.w !== null && cell.w !== '') return true;
+  return false;
+}
+
+/**
+ * 裁剪工作表稀疏 `!ref` 声明尾部（如仅含空样式的 A1:XFD1048576），返回真实非空边界。
+ */
+function getEffectiveSheetBounds(sheet: XLSX.WorkSheet | undefined): {
+  totalRows: number;
+  totalCols: number;
+} {
+  if (!sheet || !sheet['!ref']) {
+    return { totalRows: 0, totalCols: 0 };
+  }
+
+  let declared: XLSX.Range;
+  try {
+    declared = XLSX.utils.decode_range(sheet['!ref']);
+  } catch {
+    return { totalRows: 0, totalCols: 0 };
+  }
+
+  let maxRow = -1;
+  let maxCol = -1;
+  for (const key of Object.keys(sheet)) {
+    if (key.startsWith('!')) continue;
+    const cell = sheet[key] as XLSX.CellObject | undefined;
+    if (!hasCellContent(cell)) continue;
+    try {
+      const pos = XLSX.utils.decode_cell(key);
+      if (pos.r > maxRow) maxRow = pos.r;
+      if (pos.c > maxCol) maxCol = pos.c;
+    } catch {
+      // 忽略非法单元格键名
+    }
+  }
+
+  // 合并单元格仅在接近真实内容边界且跨度合理时计入，防止病态全列/全行合并撑爆渲染边界
+  const merges = sheet['!merges'] ?? [];
+  for (const m of merges) {
+    if (m.e.r < 0 || m.e.c < 0) continue;
+    const rowSpan = m.e.r - m.s.r + 1;
+    const colSpan = m.e.c - m.s.c + 1;
+    if (rowSpan <= 1000 && (maxRow < 0 || m.s.r <= maxRow + 50)) {
+      if (m.e.r > maxRow) maxRow = m.e.r;
+    }
+    if (colSpan <= 200 && (maxCol < 0 || m.s.c <= maxCol + 20)) {
+      if (m.e.c > maxCol) maxCol = m.e.c;
+    }
+  }
+
+  if (maxRow < 0 || maxCol < 0) {
+    return { totalRows: 0, totalCols: 0 };
+  }
+
+  return {
+    totalRows: Math.max(0, Math.min(declared.e.r + 1, maxRow + 1)),
+    totalCols: Math.max(0, Math.min(declared.e.c + 1, maxCol + 1)),
+  };
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -72,6 +157,9 @@ function getColumnWidthPx(sheet: XLSX.WorkSheet, colIndex: number): number {
 
 function getCellDisplayText(cell: XLSX.CellObject | undefined): string {
   if (!cell) return '';
+  if (cell.w !== undefined && cell.w !== null && cell.w !== '') {
+    return String(cell.w);
+  }
   try {
     const formatted = XLSX.utils.format_cell(cell);
     if (formatted !== undefined && formatted !== null && formatted !== '') {
@@ -80,13 +168,7 @@ function getCellDisplayText(cell: XLSX.CellObject | undefined): string {
   } catch {
     // 忽略格式化异常并回退到原始字段
   }
-  if (cell.w !== undefined && cell.w !== null) {
-    return String(cell.w);
-  }
   if (cell.v !== undefined && cell.v !== null) {
-    if (cell.v instanceof Date) {
-      return Number.isNaN(cell.v.getTime()) ? '' : cell.v.toLocaleString();
-    }
     return String(cell.v);
   }
   return '';
@@ -119,7 +201,7 @@ export function createExcelRenderer(): PreviewRenderer {
   let cellElementMap = new Map<string, HTMLTableCellElement>();
   let colHeaderEls: HTMLTableCellElement[] = [];
   let rowHeaderEls: HTMLTableCellElement[] = [];
-  let mergeRangeByKey = new Map<string, string>();
+  let mergeSpanByKey = new Map<string, MergeSpanInfo>();
 
   let lastBuffer: ArrayBuffer | null = null;
   let lastMeta: { name: string; path: string; ext: string } | null = null;
@@ -139,7 +221,8 @@ export function createExcelRenderer(): PreviewRenderer {
   let searchMatches: SearchMatchItem[] = [];
   let activeMatchIndex = -1;
 
-  const expandedRowsSheets = new Set<string>();
+  const expandedRowsLimitBySheet = new Map<string, number>();
+  const expandedColsLimitBySheet = new Map<string, number>();
   const stateListeners = new Set<(info: PreviewStateInfo) => void>();
   let destroyed = false;
 
@@ -177,7 +260,7 @@ export function createExcelRenderer(): PreviewRenderer {
     }
     copyFeedbackText = '';
     if (copyBtnEl) {
-      copyBtnEl.classList.remove('is-copied');
+      copyBtnEl.classList.remove('is-copied', 'is-copy-failed');
       copyBtnEl.textContent = '复制';
     }
   }
@@ -246,14 +329,16 @@ export function createExcelRenderer(): PreviewRenderer {
       const active =
         selectedCell !== null &&
         selectedCell.sheetIndex === currentSheetIndex &&
-        selectedCell.c === idx;
+        idx >= selectedCell.c &&
+        idx <= selectedCell.endC;
       th.classList.toggle('is-active-header', active);
     });
     rowHeaderEls.forEach((th, idx) => {
       const active =
         selectedCell !== null &&
         selectedCell.sheetIndex === currentSheetIndex &&
-        selectedCell.r === idx;
+        idx >= selectedCell.r &&
+        idx <= selectedCell.endR;
       th.classList.toggle('is-active-header', active);
     });
   }
@@ -270,13 +355,15 @@ export function createExcelRenderer(): PreviewRenderer {
     }
 
     const addr = XLSX.utils.encode_cell({ r, c });
-    const mergeRef = mergeRangeByKey.get(key);
+    const mergeSpan = mergeSpanByKey.get(key);
     selectedCell = {
       sheetIndex: currentSheetIndex,
       r,
       c,
+      endR: mergeSpan?.endR ?? r,
+      endC: mergeSpan?.endC ?? c,
       addr,
-      displayRef: mergeRef ?? addr,
+      displayRef: mergeSpan?.rangeRef ?? addr,
     };
 
     const td = cellElementMap.get(key);
@@ -386,42 +473,82 @@ export function createExcelRenderer(): PreviewRenderer {
     totalCols: number,
     renderRows: number,
     renderCols: number,
-    rowsTruncated: boolean,
-    colsTruncated: boolean,
   ): void {
     if (!bannerEl) return;
+    const rowsTruncated = renderRows < totalRows;
+    const colsTruncated = renderCols < totalCols;
     if (!rowsTruncated && !colsTruncated) {
       bannerEl.hidden = true;
       bannerEl.innerHTML = '';
       return;
     }
 
+    const rowCap = Math.min(totalRows, MAX_RENDER_ROWS_HARD);
+    const colCap = Math.min(totalCols, MAX_RENDER_COLS_HARD);
+    const canExpandRows = renderRows < rowCap;
+    const canExpandCols = renderCols < colCap;
+    const hitHardCap = renderRows >= MAX_RENDER_ROWS_HARD || renderCols >= MAX_RENDER_COLS_HARD;
+
     bannerEl.hidden = false;
     bannerEl.innerHTML = '';
 
     const msgEl = document.createElement('span');
     msgEl.className = 'fp-excel-truncation-text';
-    if (rowsTruncated && colsTruncated) {
-      msgEl.textContent = `当前工作表共 ${totalRows.toLocaleString()} 行 × ${totalCols} 列，已渲染前 ${renderRows.toLocaleString()} 行（最多 ${MAX_COLS} 列）`;
-    } else if (rowsTruncated) {
-      msgEl.textContent = `当前工作表共 ${totalRows.toLocaleString()} 行 × ${totalCols} 列，已渲染前 ${renderRows.toLocaleString()} 行`;
-    } else {
-      msgEl.textContent = `当前工作表共 ${totalRows.toLocaleString()} 行 × ${totalCols} 列，已渲染前 ${renderCols} 列（最多 ${MAX_COLS} 列）`;
+    const renderedParts: string[] = [];
+    if (rowsTruncated) {
+      renderedParts.push(`前 ${renderRows.toLocaleString()} 行`);
     }
+    if (colsTruncated) {
+      renderedParts.push(`前 ${renderCols} 列`);
+    }
+    let msg = `当前工作表共 ${totalRows.toLocaleString()} 行 × ${totalCols} 列，已渲染${renderedParts.join('、')}`;
+    if (hitHardCap) {
+      msg += `（已达安全渲染上限，可使用搜索精准定位）`;
+    }
+    msgEl.textContent = msg;
     bannerEl.appendChild(msgEl);
 
-    if (rowsTruncated) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'fp-btn fp-btn-secondary fp-excel-load-all-btn';
-      btn.textContent = '加载全部行';
-      btn.addEventListener('click', () => {
-        if (destroyed) return;
-        expandedRowsSheets.add(sheetName);
-        renderCurrentSheet();
-        emitState();
-      });
-      bannerEl.appendChild(btn);
+    if (canExpandRows || canExpandCols) {
+      const actionsEl = document.createElement('div');
+      actionsEl.className = 'fp-excel-banner-actions';
+
+      if (canExpandRows) {
+        const nextRowLimit = Math.min(rowCap, renderRows + ROW_BATCH_SIZE);
+        const deltaRows = nextRowLimit - renderRows;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'fp-btn fp-btn-secondary fp-excel-load-all-btn';
+        btn.textContent =
+          nextRowLimit >= totalRows
+            ? `加载全部行 (+${deltaRows.toLocaleString()})`
+            : `再加载 ${deltaRows.toLocaleString()} 行`;
+        btn.addEventListener('click', () => {
+          if (destroyed) return;
+          expandedRowsLimitBySheet.set(sheetName, nextRowLimit);
+          renderCurrentSheet(true);
+          emitState();
+        });
+        actionsEl.appendChild(btn);
+      }
+
+      if (canExpandCols) {
+        const nextColLimit = Math.min(colCap, renderCols + COL_BATCH_SIZE);
+        const deltaCols = nextColLimit - renderCols;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'fp-btn fp-btn-secondary fp-excel-load-all-btn';
+        btn.textContent =
+          nextColLimit >= totalCols ? `展开全部列 (+${deltaCols})` : `再加载 ${deltaCols} 列`;
+        btn.addEventListener('click', () => {
+          if (destroyed) return;
+          expandedColsLimitBySheet.set(sheetName, nextColLimit);
+          renderCurrentSheet(true);
+          emitState();
+        });
+        actionsEl.appendChild(btn);
+      }
+
+      bannerEl.appendChild(actionsEl);
     }
   }
 
@@ -433,11 +560,13 @@ export function createExcelRenderer(): PreviewRenderer {
     cellElementMap.clear();
     colHeaderEls = [];
     rowHeaderEls = [];
-    mergeRangeByKey.clear();
+    mergeSpanByKey.clear();
   }
 
-  function renderCurrentSheet(): void {
+  function renderCurrentSheet(preserveScroll = false): void {
     if (destroyed || !viewportEl) return;
+    const prevScrollTop = preserveScroll ? viewportEl.scrollTop : 0;
+    const prevScrollLeft = preserveScroll ? viewportEl.scrollLeft : 0;
     resetGridRefs();
 
     const sheetNames = workbook?.SheetNames ?? [];
@@ -460,25 +589,11 @@ export function createExcelRenderer(): PreviewRenderer {
 
     renderSheetBar();
 
-    if (!sheet || !sheet['!ref']) {
-      currentRowCount = 0;
-      currentColCount = 0;
-      if (bannerEl) {
-        bannerEl.hidden = true;
-        bannerEl.innerHTML = '';
-      }
-      renderEmptyState('空工作表', `工作表「${sheetName}」暂无单元格数据`);
-      updateFormulaBar();
-      return;
-    }
-
-    const range = XLSX.utils.decode_range(sheet['!ref']);
-    const totalRows = Math.max(0, range.e.r + 1);
-    const totalCols = Math.max(0, range.e.c + 1);
+    const { totalRows, totalCols } = getEffectiveSheetBounds(sheet);
     currentRowCount = totalRows;
     currentColCount = totalCols;
 
-    if (totalRows === 0 || totalCols === 0) {
+    if (!sheet || totalRows === 0 || totalCols === 0) {
       if (bannerEl) {
         bannerEl.hidden = true;
         bannerEl.innerHTML = '';
@@ -488,13 +603,18 @@ export function createExcelRenderer(): PreviewRenderer {
       return;
     }
 
-    const isExpanded = expandedRowsSheets.has(sheetName);
-    const renderRows = isExpanded ? totalRows : Math.min(totalRows, MAX_INITIAL_ROWS);
-    const renderCols = Math.min(totalCols, MAX_COLS);
-    const rowsTruncated = !isExpanded && totalRows > MAX_INITIAL_ROWS;
-    const colsTruncated = totalCols > MAX_COLS;
+    const rowLimit = Math.min(
+      MAX_RENDER_ROWS_HARD,
+      expandedRowsLimitBySheet.get(sheetName) ?? MAX_INITIAL_ROWS,
+    );
+    const colLimit = Math.min(
+      MAX_RENDER_COLS_HARD,
+      expandedColsLimitBySheet.get(sheetName) ?? MAX_INITIAL_COLS,
+    );
+    const renderRows = Math.min(totalRows, rowLimit);
+    const renderCols = Math.min(totalCols, colLimit);
 
-    renderBanner(sheetName, totalRows, totalCols, renderRows, renderCols, rowsTruncated, colsTruncated);
+    renderBanner(sheetName, totalRows, totalCols, renderRows, renderCols);
 
     // 解析合并单元格
     const mergeMasterMap = new Map<string, MergeMasterInfo>();
@@ -519,7 +639,7 @@ export function createExcelRenderer(): PreviewRenderer {
       if (rowSpan > 1 || colSpan > 1) {
         mergeMasterMap.set(masterKey, { rowSpan, colSpan, rangeRef });
       }
-      mergeRangeByKey.set(masterKey, rangeRef);
+      mergeSpanByKey.set(masterKey, { endR, endC, rangeRef });
 
       for (let r = startR; r <= endR; r++) {
         for (let c = startC; c <= endC; c++) {
@@ -643,8 +763,8 @@ export function createExcelRenderer(): PreviewRenderer {
 
     viewportEl.innerHTML = '';
     viewportEl.appendChild(table);
-    viewportEl.scrollTop = 0;
-    viewportEl.scrollLeft = 0;
+    viewportEl.scrollTop = prevScrollTop;
+    viewportEl.scrollLeft = prevScrollLeft;
 
     applyZoomToDOM();
     applySearchHighlightsToCurrentSheet();
@@ -662,9 +782,30 @@ export function createExcelRenderer(): PreviewRenderer {
     const targetSheetName = workbook.SheetNames[match.sheetIndex];
     let needRerender = false;
 
-    if (match.r >= MAX_INITIAL_ROWS && targetSheetName && !expandedRowsSheets.has(targetSheetName)) {
-      expandedRowsSheets.add(targetSheetName);
-      if (match.sheetIndex === currentSheetIndex) {
+    if (targetSheetName) {
+      const currentRowLimit = Math.min(
+        MAX_RENDER_ROWS_HARD,
+        expandedRowsLimitBySheet.get(targetSheetName) ?? MAX_INITIAL_ROWS,
+      );
+      if (match.r >= currentRowLimit && match.r < MAX_RENDER_ROWS_HARD) {
+        const neededRows = Math.min(
+          MAX_RENDER_ROWS_HARD,
+          Math.ceil((match.r + 1) / ROW_BATCH_SIZE) * ROW_BATCH_SIZE,
+        );
+        expandedRowsLimitBySheet.set(targetSheetName, neededRows);
+        needRerender = true;
+      }
+
+      const currentColLimit = Math.min(
+        MAX_RENDER_COLS_HARD,
+        expandedColsLimitBySheet.get(targetSheetName) ?? MAX_INITIAL_COLS,
+      );
+      if (match.c >= currentColLimit && match.c < MAX_RENDER_COLS_HARD) {
+        const neededCols = Math.min(
+          MAX_RENDER_COLS_HARD,
+          Math.ceil((match.c + 1) / COL_BATCH_SIZE) * COL_BATCH_SIZE,
+        );
+        expandedColsLimitBySheet.set(targetSheetName, neededCols);
         needRerender = true;
       }
     }
@@ -673,7 +814,7 @@ export function createExcelRenderer(): PreviewRenderer {
       currentSheetIndex = match.sheetIndex;
       renderCurrentSheet();
     } else if (needRerender) {
-      renderCurrentSheet();
+      renderCurrentSheet(true);
     } else {
       applySearchHighlightsToCurrentSheet();
     }
@@ -692,13 +833,13 @@ export function createExcelRenderer(): PreviewRenderer {
     queryLower: string,
     out: SearchMatchItem[],
   ): void {
-    if (!sheet['!ref']) return;
-    const range = XLSX.utils.decode_range(sheet['!ref']);
-    const startR = Math.max(0, range.s.r);
-    const startC = Math.max(0, range.s.c);
-    const endR = Math.max(startR, range.e.r);
-    const endC = Math.max(startC, range.e.c);
-    const totalCells = (endR - startR + 1) * (endC - startC + 1);
+    const { totalRows, totalCols } = getEffectiveSheetBounds(sheet);
+    if (totalRows === 0 || totalCols === 0) return;
+
+    // 搜索边界与最大可渲染行列上限对齐，确保每条命中均能展开网格并高亮聚焦
+    const endR = Math.min(totalRows - 1, MAX_RENDER_ROWS_HARD - 1);
+    const endC = Math.min(totalCols - 1, MAX_RENDER_COLS_HARD - 1);
+    const totalCells = (endR + 1) * (endC + 1);
 
     const checkCell = (r: number, c: number, addr: string, cell: XLSX.CellObject | undefined) => {
       if (!cell) return;
@@ -717,6 +858,7 @@ export function createExcelRenderer(): PreviewRenderer {
       for (const key of Object.keys(sheet)) {
         if (key.startsWith('!') || !/^[A-Z]+\d+$/i.test(key)) continue;
         const pos = XLSX.utils.decode_cell(key);
+        if (pos.r < 0 || pos.r > endR || pos.c < 0 || pos.c > endC) continue;
         coords.push({ r: pos.r, c: pos.c, addr: key });
       }
       coords.sort((a, b) => (a.r !== b.r ? a.r - b.r : a.c - b.c));
@@ -726,8 +868,8 @@ export function createExcelRenderer(): PreviewRenderer {
       return;
     }
 
-    for (let r = startR; r <= endR; r++) {
-      for (let c = startC; c <= endC; c++) {
+    for (let r = 0; r <= endR; r++) {
+      for (let c = 0; c <= endC; c++) {
         const addr = XLSX.utils.encode_cell({ r, c });
         checkCell(r, c, addr, sheet[addr] as XLSX.CellObject | undefined);
       }
@@ -744,7 +886,7 @@ export function createExcelRenderer(): PreviewRenderer {
       return XLSX.read(text, {
         type: 'string',
         cellFormula: true,
-        cellDates: true,
+        cellDates: false,
         cellNF: true,
         cellStyles: true,
         ...(ext === '.tsv' ? { FS: '\t' } : {}),
@@ -758,7 +900,7 @@ export function createExcelRenderer(): PreviewRenderer {
     return XLSX.read(new Uint8Array(buffer), {
       type: 'array',
       cellFormula: true,
-      cellDates: true,
+      cellDates: false,
       cellNF: true,
       cellStyles: true,
     });
@@ -785,27 +927,45 @@ export function createExcelRenderer(): PreviewRenderer {
     goToPage(idx + 1);
   }
 
+  function showCopyStatus(ok: boolean): void {
+    if (destroyed || !copyBtnEl) return;
+    copyBtnEl.classList.toggle('is-copied', ok);
+    copyBtnEl.classList.toggle('is-copy-failed', !ok);
+    copyBtnEl.textContent = ok ? '已复制' : '复制失败';
+    if (copyFeedbackTimer !== null) {
+      window.clearTimeout(copyFeedbackTimer);
+    }
+    copyFeedbackTimer = window.setTimeout(() => {
+      copyFeedbackTimer = null;
+      if (!copyBtnEl || destroyed) return;
+      copyBtnEl.classList.remove('is-copied', 'is-copy-failed');
+      copyBtnEl.textContent = '复制';
+    }, 1500);
+  }
+
   async function handleCopyClick(): Promise<void> {
     if (!copyFeedbackText || !copyBtnEl) return;
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(copyFeedbackText);
-        if (destroyed || !copyBtnEl) return;
-        copyBtnEl.classList.add('is-copied');
-        copyBtnEl.textContent = '已复制';
-        if (copyFeedbackTimer !== null) {
-          window.clearTimeout(copyFeedbackTimer);
-        }
-        copyFeedbackTimer = window.setTimeout(() => {
-          copyFeedbackTimer = null;
-          if (!copyBtnEl || destroyed) return;
-          copyBtnEl.classList.remove('is-copied');
-          copyBtnEl.textContent = '复制';
-        }, 1500);
-      }
-    } catch (err) {
-      console.warn('[excelRenderer] 复制到剪贴板失败:', err);
+    const ok = await copyTextToClipboard(copyFeedbackText);
+    if (!ok) {
+      console.warn('[excelRenderer] 复制到剪贴板失败');
     }
+    showCopyStatus(ok);
+  }
+
+  function handleKeyDown(e: KeyboardEvent): void {
+    if (destroyed || !rootEl) return;
+    if (e.defaultPrevented || e.isComposing) return;
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+    if (e.key.toLowerCase() !== 'c') return;
+    if (isEditableTarget(e.target)) return;
+
+    // 若用户手动拖选了局部文本，保留浏览器原生选区复制行为
+    const selectionText = window.getSelection()?.toString() ?? '';
+    if (selectionText.length > 0) return;
+
+    if (!copyFeedbackText) return;
+    e.preventDefault();
+    void handleCopyClick();
   }
 
   function goToPage(page: number): void {
@@ -886,6 +1046,7 @@ export function createExcelRenderer(): PreviewRenderer {
 
       rootEl.append(formulaBarEl, bannerEl, viewportEl, sheetBarEl);
       container.appendChild(rootEl);
+      window.addEventListener('keydown', handleKeyDown);
     },
 
     async loadBuffer(buffer: ArrayBuffer, meta: { name: string; path: string; ext: string }): Promise<void> {
@@ -896,7 +1057,8 @@ export function createExcelRenderer(): PreviewRenderer {
       workbook = parseWorkbook(buffer, meta);
       currentSheetIndex = 0;
       selectedCell = null;
-      expandedRowsSheets.clear();
+      expandedRowsLimitBySheet.clear();
+      expandedColsLimitBySheet.clear();
       searchQuery = '';
       searchMatches = [];
       activeMatchIndex = -1;
@@ -906,11 +1068,18 @@ export function createExcelRenderer(): PreviewRenderer {
       emitState();
     },
 
+    async reloadBuffer(buffer: ArrayBuffer, meta: { name: string; path: string; ext: string }): Promise<void> {
+      lastBuffer = buffer;
+      lastMeta = meta;
+      await this.refresh?.();
+    },
+
     async refresh(): Promise<void> {
       if (!lastBuffer || !lastMeta || destroyed) return;
 
       const prevSheetCount = workbook?.SheetNames.length ?? 0;
       const prevSheetName = workbook?.SheetNames[currentSheetIndex];
+      const prevSelected = selectedCell ? { ...selectedCell } : null;
 
       workbook = parseWorkbook(lastBuffer, lastMeta);
       const nextSheetNames = workbook.SheetNames;
@@ -924,6 +1093,21 @@ export function createExcelRenderer(): PreviewRenderer {
         currentSheetIndex = clamp(currentSheetIndex, 0, nextSheetNames.length - 1);
       } else {
         currentSheetIndex = 0;
+      }
+
+      if (nextSheetNames.length > 0 && prevSelected && prevSelected.sheetIndex === currentSheetIndex) {
+        const activeSheet = workbook.Sheets[nextSheetNames[currentSheetIndex]];
+        const bounds = getEffectiveSheetBounds(activeSheet);
+        if (prevSelected.r < bounds.totalRows && prevSelected.c < bounds.totalCols) {
+          selectedCell = {
+            ...prevSelected,
+            sheetIndex: currentSheetIndex,
+          };
+        } else {
+          selectedCell = null;
+        }
+      } else {
+        selectedCell = null;
       }
 
       if (searchQuery) {
@@ -940,7 +1124,11 @@ export function createExcelRenderer(): PreviewRenderer {
       }
 
       clearCopyFeedback();
-      renderCurrentSheet();
+      renderCurrentSheet(true);
+      if (selectedCell && selectedCell.sheetIndex === currentSheetIndex) {
+        // 同步更新刷新后的单元格选中区间与公式栏内容
+        selectCellAt(selectedCell.r, selectedCell.c, false);
+      }
       emitState();
     },
 
@@ -1018,6 +1206,7 @@ export function createExcelRenderer(): PreviewRenderer {
     destroy(): void {
       destroyed = true;
       clearCopyFeedback();
+      window.removeEventListener('keydown', handleKeyDown);
 
       if (viewportEl) {
         viewportEl.removeEventListener('click', handleViewportClick);
@@ -1050,7 +1239,8 @@ export function createExcelRenderer(): PreviewRenderer {
       searchQuery = '';
       searchMatches = [];
       activeMatchIndex = -1;
-      expandedRowsSheets.clear();
+      expandedRowsLimitBySheet.clear();
+      expandedColsLimitBySheet.clear();
       stateListeners.clear();
     },
   };

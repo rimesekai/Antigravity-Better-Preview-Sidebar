@@ -62,6 +62,8 @@ export interface PreviewStateInfo {
 export interface PreviewRenderer {
   mount(container: HTMLElement): void;
   loadBuffer?(buffer: ArrayBuffer, meta: { name: string; path: string; ext: string }): Promise<void>;
+  /** 原地重载新缓冲区并尽量保留当前页/工作表/选区与搜索状态 */
+  reloadBuffer?(buffer: ArrayBuffer, meta: { name: string; path: string; ext: string }): Promise<void>;
   loadHtml?(
     mountInfo: HtmlMountInfo | null,
     sourceText: string,

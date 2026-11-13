@@ -4,6 +4,7 @@ import type {
   PreviewRenderer,
   PreviewStateInfo,
 } from '../types/preview';
+import { copyTextToClipboard } from '../utils/clipboard';
 
 const UNMOUNTED_INTERACTIVE_WARNING =
   '拖拽无路径文件仅支持静态沙箱与源码视图，若需加载同目录资源请从工作区或路径打开';
@@ -17,33 +18,6 @@ function buildBustUrl(rawUrl: string): string {
     const sep = rawUrl.includes('?') ? '&' : '?';
     return `${rawUrl}${sep}_ts=${Date.now()}`;
   }
-}
-
-async function copyTextToClipboard(text: string): Promise<boolean> {
-  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // fallback below
-    }
-  }
-  const textarea = document.createElement('textarea');
-  textarea.value = text;
-  textarea.setAttribute('readonly', 'true');
-  textarea.style.position = 'fixed';
-  textarea.style.top = '-9999px';
-  textarea.style.left = '-9999px';
-  document.body.appendChild(textarea);
-  textarea.select();
-  let ok = false;
-  try {
-    ok = document.execCommand('copy');
-  } catch {
-    ok = false;
-  }
-  textarea.remove();
-  return ok;
 }
 
 export function createHtmlRenderer(): PreviewRenderer {

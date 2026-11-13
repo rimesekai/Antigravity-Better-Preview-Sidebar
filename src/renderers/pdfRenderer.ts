@@ -863,6 +863,7 @@ export function createPdfRenderer(): PreviewRenderer {
 
   function goToPage(page: number): void {
     if (destroyed || totalPages <= 0 || !Number.isFinite(page)) return;
+    const prevPageNum = currentPage;
     const clamped = clamp(Math.round(page), 1, totalPages);
     currentPage = clamped;
 
@@ -871,7 +872,9 @@ export function createPdfRenderer(): PreviewRenderer {
     } else {
       const slot = pageSlots.get(clamped);
       if (slot) {
-        slot.boxEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        const behavior: ScrollBehavior =
+          Math.abs(clamped - prevPageNum) > FAR_PAGE_DISTANCE ? 'auto' : 'smooth';
+        slot.boxEl.scrollIntoView({ behavior, block: 'start' });
         void renderPageSlot(slot, loadGeneration);
       }
       releaseFarPages(clamped);
@@ -914,6 +917,9 @@ export function createPdfRenderer(): PreviewRenderer {
   async function focusMatch(index: number): Promise<void> {
     if (destroyed || index < 0 || index >= searchMatches.length) return;
     const match = searchMatches[index];
+    const prevPageNum = currentPage;
+    const isFarJump = Math.abs(match.page - prevPageNum) > FAR_PAGE_DISTANCE;
+    const scrollBehavior: ScrollBehavior = isFarJump ? 'auto' : 'smooth';
     currentPage = match.page;
 
     if (layoutMode === 'slide') {
@@ -921,8 +927,9 @@ export function createPdfRenderer(): PreviewRenderer {
     } else {
       const slot = pageSlots.get(match.page);
       if (slot) {
-        slot.boxEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        slot.boxEl.scrollIntoView({ behavior: scrollBehavior, block: 'center' });
       }
+      releaseFarPages(match.page);
     }
     const targetSlot = pageSlots.get(match.page);
     if (targetSlot) {
@@ -930,7 +937,7 @@ export function createPdfRenderer(): PreviewRenderer {
       applyHighlightsToPage(match.page);
       const activeMark = targetSlot.textLayerEl.querySelector('mark.fp-pdf-search-hit.is-active');
       if (activeMark) {
-        activeMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        activeMark.scrollIntoView({ behavior: scrollBehavior, block: 'center' });
       }
     }
     for (const p of visiblePageSet) {

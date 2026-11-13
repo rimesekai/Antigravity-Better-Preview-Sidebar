@@ -1,9 +1,25 @@
 {
   "name": "file-preview",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Antigravity 侧边栏 PPT / Word / Excel / PDF / MP4 / HTML 文件预览插件",
+  "author": "rimesekai <353441533+rimesekai@users.noreply.github.com>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "antigravity",
+    "file-preview",
+    "sidebar",
+    "pptx",
+    "docx",
+    "xlsx",
+    "pdf",
+    "mp4",
+    "html"
+  ],
   "scripts": {
     "build:ui": "vite build",
     "build:server": "node scripts/build-server.mjs",
@@ -15,9 +31,10 @@
     "@aiden0z/pptx-renderer": "^1.4.0",
     "docx-preview": "^0.4.1",
     "pdfjs-dist": "3.11.174",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "overrides": {
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "@aiden0z/pptx-renderer": {
       "pdfjs-dist": "$pdfjs-dist"
     }

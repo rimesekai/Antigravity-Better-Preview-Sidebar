@@ -4,6 +4,8 @@ import {
   mkdtempSync,
   rmSync,
   symlinkSync,
+  truncateSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import http from 'node:http';
@@ -619,10 +621,10 @@ describe('SidecarApp HTTP 路由集成测试', () => {
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  it('GET /api/health 与静态页面路由返回正确内容', async () => {
+  it('GET /api/health 与静态页面路由返回正确内容且静态缓存按 mtime 失效', async () => {
     const healthRes = await fetch(`${baseUrl}/api/health`);
     assert.equal(healthRes.status, 200);
-    assert.deepEqual(await healthRes.json(), { status: 'ok', version: '0.1.0' });
+    assert.deepEqual(await healthRes.json(), { status: 'ok', version: '0.2.0' });
 
     const pageRes = await fetch(`${baseUrl}/`);
     assert.equal(pageRes.status, 200);
@@ -636,6 +638,18 @@ describe('SidecarApp HTTP 路由集成测试', () => {
     assert.equal(workerRes.status, 200);
     assert.match(workerRes.headers.get('content-type'), /^application\/javascript/);
     assert.match(await workerRes.text(), /worker/);
+
+    const appPath = join(distDir, 'app.js');
+    const firstAppRes = await fetch(`${baseUrl}/app.js`);
+    assert.equal(firstAppRes.status, 200);
+    assert.equal(await firstAppRes.text(), 'console.log("ui");');
+
+    writeFileSync(appPath, 'console.log("ui-v2-updated");');
+    const futureDate = new Date(Date.now() + 10_000);
+    utimesSync(appPath, futureDate, futureDate);
+    const updatedAppRes = await fetch(`${baseUrl}/app.js`);
+    assert.equal(updatedAppRes.status, 200);
+    assert.equal(await updatedAppRes.text(), 'console.log("ui-v2-updated");');
   });
 
   it('POST 接口强制校验 X-Sidecar-Token，未携带返回 401', async () => {
@@ -794,10 +808,45 @@ describe('SidecarApp HTTP 路由集成测试', () => {
     const docErr = await docStat.json();
     assert.match(docErr.error, /\.docx/);
   });
+
+  it('POST /api/fs/read 对解析格式（60MB）与普通读取格式（80MB）执行分级大小上限', async () => {
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Sidecar-Token': token,
+    };
+
+    const largeXlsx = join(workspaceDir, 'oversized.xlsx');
+    writeFileSync(largeXlsx, '');
+    truncateSync(largeXlsx, 61 * 1024 * 1024);
+
+    const xlsxReadRes = await fetch(`${baseUrl}/api/fs/read`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ file: largeXlsx, workspaceUris: [workspaceDir] }),
+    });
+    assert.equal(xlsxReadRes.status, 413);
+    const xlsxErr = await xlsxReadRes.json();
+    assert.equal(xlsxErr.code, 'FILE_TOO_LARGE');
+    assert.match(xlsxErr.error, /60MB/);
+
+    const largeHtml = join(workspaceDir, 'oversized.html');
+    writeFileSync(largeHtml, '');
+    truncateSync(largeHtml, 81 * 1024 * 1024);
+
+    const htmlReadRes = await fetch(`${baseUrl}/api/fs/read`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ file: largeHtml, workspaceUris: [workspaceDir] }),
+    });
+    assert.equal(htmlReadRes.status, 413);
+    const htmlErr = await htmlReadRes.json();
+    assert.equal(htmlErr.code, 'FILE_TOO_LARGE');
+    assert.match(htmlErr.error, /80MB/);
+  });
 });
 
 describe('xlsx 内存工作簿多工作表、合并单元格与公式无损读写测试', () => {
-  it('生成真实内存 .xlsx buffer 并无损读回多 Sheet、!merges 合并区域与公式单元格', () => {
+  it('生成真实内存 .xlsx buffer 并无损读回多 Sheet、!merges 合并区域、日期(.w)与公式单元格', () => {
     const wb = XLSX.utils.book_new();
 
     const summarySheet = XLSX.utils.aoa_to_sheet([
@@ -805,6 +854,7 @@ describe('xlsx 内存工作簿多工作表、合并单元格与公式无损读�
       ['项目', 'Q1', 'Q2'],
       ['营收', 100, 200],
       ['合计', null, null],
+      ['日期', new Date(Date.UTC(2026, 10, 14)), null],
     ]);
     summarySheet['!merges'] = [
       { s: { r: 0, c: 0 }, e: { r: 0, c: 2 } },
@@ -826,7 +876,7 @@ describe('xlsx 内存工作簿多工作表、合并单元格与公式无损读�
     const parsed = XLSX.read(new Uint8Array(buffer), {
       type: 'array',
       cellFormula: true,
-      cellDates: true,
+      cellDates: false,
       cellNF: true,
       cellStyles: true,
     });
@@ -840,6 +890,8 @@ describe('xlsx 内存工作簿多工作表、合并单元格与公式无损读�
     ]);
     assert.equal(parsedSummary['B4']?.f, 'SUM(B3:C3)');
     assert.equal(parsedSummary['B4']?.v, 300);
+    assert.equal(parsedSummary['B5']?.t, 'n');
+    assert.equal(parsedSummary['B5']?.w, '11/14/26');
 
     const parsedDetail = parsed.Sheets['明细'];
     assert.equal(parsedDetail['A2']?.v, '研发部');
