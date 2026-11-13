@@ -1,0 +1,19 @@
+name: 功能建议 / Feature Request
+description: 提议新增支持的文件格式、交互能力或体验优化
+title: "[Feat]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: 期望新增的功能或格式 / Feature Summary
+      placeholder: 例如：希望增加 .md 渲染预览 / Excel 支持冻结首行等
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: 使用场景 / Use Case
+      description: 简述你在日常使用 Antigravity 侧边栏时遇到什么痛点，以及该功能如何帮助解决。
+    validations:
+      required: false
