@@ -14,16 +14,23 @@ import { createWordRenderer } from './renderers/wordRenderer';
 import { createPptRenderer } from './renderers/pptRenderer';
 import { createHtmlRenderer } from './renderers/htmlRenderer';
 import { createPdfRenderer } from './renderers/pdfRenderer';
+import { createVideoRenderer } from './renderers/videoRenderer';
 import {
   SidecarApiError,
   listWorkspaceFiles,
   mountHtmlFile,
   mountPdfFile,
+  mountVideoFile,
   readFileBuffer,
   readFileText,
   statFile,
 } from './services/sidecarClient';
-import { startThemeSync, subscribeWorkspaceChanges } from './services/themeSync';
+import {
+  cycleThemePreference,
+  getThemePreference,
+  startThemeSync,
+  subscribeWorkspaceChanges,
+} from './services/themeSync';
 import { createToolbar, type ToolbarFileMeta } from './components/Toolbar';
 import { createWorkspaceBrowser } from './components/WorkspaceBrowser';
 
@@ -44,6 +51,7 @@ function classifyDroppedFile(fileName: string): {
   if (ext === '.pptx') return { kind: 'ppt', ext };
   if (ext === '.docx') return { kind: 'word', ext };
   if (ext === '.pdf') return { kind: 'pdf', ext };
+  if (ext === '.mp4') return { kind: 'mp4', ext };
   if (ext === '.html' || ext === '.htm') return { kind: 'html', ext };
 
   if (ext === '.ppt') {
@@ -66,7 +74,7 @@ function classifyDroppedFile(fileName: string): {
     kind: null,
     ext,
     errorTitle: '不支持的文件格式',
-    errorMessage: `当前仅支持 .pptx、.docx、.pdf、.html 和 .htm 文件（收到：${ext || '无扩展名'}）。`,
+    errorMessage: `当前仅支持 .pptx、.docx、.pdf、.mp4、.html 和 .htm 文件（收到：${ext || '无扩展名'}）。`,
   };
 }
 
@@ -78,6 +86,8 @@ function createRendererForKind(kind: PreviewKind): PreviewRenderer {
       return createPptRenderer();
     case 'pdf':
       return createPdfRenderer();
+    case 'mp4':
+      return createVideoRenderer();
     case 'html':
       return createHtmlRenderer();
   }
@@ -186,6 +196,10 @@ function bootstrap(): void {
         return;
       }
       autoRefreshEnabled = !autoRefreshEnabled;
+      syncUi();
+    },
+    onCycleTheme: () => {
+      cycleThemePreference();
       syncUi();
     },
     onZoomChange: (zoom) => {
@@ -400,6 +414,7 @@ function bootstrap(): void {
       hasError: Boolean(activeError),
       autoRefresh: autoRefreshEnabled,
       drawerOpen: showDrawer,
+      themePreference: getThemePreference(),
     });
   }
 
@@ -575,6 +590,19 @@ function bootstrap(): void {
         });
         if (reqId !== loadRequestSeq) return;
         applyPreservedViewOptions(renderer, 'pdf', preserved);
+      } else if (stat.kind === 'mp4') {
+        const mountInfo = await mountVideoFile(stat.path);
+        if (reqId !== loadRequestSeq) return;
+
+        currentSource = { type: 'disk', path: stat.path, stat };
+        const renderer = mountRendererWithState('mp4', preserved);
+        await renderer.loadVideo?.(mountInfo, null, {
+          name: stat.name,
+          path: stat.path,
+          ext: stat.ext,
+          size: stat.size,
+        });
+        if (reqId !== loadRequestSeq) return;
       } else {
         const buffer = await readFileBuffer(stat.path);
         if (reqId !== loadRequestSeq) return;
@@ -675,6 +703,15 @@ function bootstrap(): void {
 
         const renderer = mountRendererWithState('pdf');
         await renderer.loadPdf?.(null, buffer, {
+          name: file.name,
+          path: file.name,
+          ext: classified.ext,
+          size: file.size,
+        });
+      } else if (classified.kind === 'mp4') {
+        const objectUrl = URL.createObjectURL(file);
+        const renderer = mountRendererWithState('mp4');
+        await renderer.loadVideo?.(null, objectUrl, {
           name: file.name,
           path: file.name,
           ext: classified.ext,

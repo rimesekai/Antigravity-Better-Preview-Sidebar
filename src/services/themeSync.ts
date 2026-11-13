@@ -1,6 +1,9 @@
 import { updateCachedWorkspaceUris } from './sidecarClient';
 
 export type ThemeMode = 'dark' | 'light';
+export type ThemePreference = 'auto' | 'light' | 'dark';
+
+const THEME_PREF_STORAGE_KEY = 'file-preview:theme-preference';
 
 interface SidecarWorkspaceWindowLike {
   sidecar?: {
@@ -19,13 +22,17 @@ interface RgbColor {
  */
 export function parseCssColorToRgb(raw: string): RgbColor | null {
   const value = raw.trim().toLowerCase();
-  if (!value) {
+  if (!value || value === 'transparent') {
     return null;
   }
 
   if (value.startsWith('#')) {
     const hex = value.slice(1);
     if (hex.length === 3 || hex.length === 4) {
+      if (hex.length === 4) {
+        const a = Number.parseInt(hex[3] + hex[3], 16) / 255;
+        if (Number.isNaN(a) || a <= 0.05) return null;
+      }
       const r = Number.parseInt(hex[0] + hex[0], 16);
       const g = Number.parseInt(hex[1] + hex[1], 16);
       const b = Number.parseInt(hex[2] + hex[2], 16);
@@ -33,6 +40,10 @@ export function parseCssColorToRgb(raw: string): RgbColor | null {
       return { r, g, b };
     }
     if (hex.length === 6 || hex.length === 8) {
+      if (hex.length === 8) {
+        const a = Number.parseInt(hex.slice(6, 8), 16) / 255;
+        if (Number.isNaN(a) || a <= 0.05) return null;
+      }
       const r = Number.parseInt(hex.slice(0, 2), 16);
       const g = Number.parseInt(hex.slice(2, 4), 16);
       const b = Number.parseInt(hex.slice(4, 6), 16);
@@ -44,13 +55,24 @@ export function parseCssColorToRgb(raw: string): RgbColor | null {
 
   const rgbMatch = /^rgba?\(([^)]+)\)$/.exec(value);
   if (rgbMatch) {
-    const inner = rgbMatch[1].split('/')[0].trim();
+    const [colorPart, slashAlpha] = rgbMatch[1].split('/');
+    const inner = colorPart.trim();
     const parts = inner.includes(',')
       ? inner.split(',').map((item) => item.trim())
       : inner.split(/\s+/).map((item) => item.trim());
 
     if (parts.length < 3) {
       return null;
+    }
+
+    const alphaRaw = slashAlpha?.trim() ?? (parts.length >= 4 ? parts[3] : undefined);
+    if (alphaRaw !== undefined) {
+      const alpha = alphaRaw.endsWith('%')
+        ? Number.parseFloat(alphaRaw.slice(0, -1)) / 100
+        : Number.parseFloat(alphaRaw);
+      if (!Number.isFinite(alpha) || alpha <= 0.05) {
+        return null;
+      }
     }
 
     const channels = parts.slice(0, 3).map((part) => {
@@ -74,7 +96,18 @@ export function parseCssColorToRgb(raw: string): RgbColor | null {
 
   const srgbMatch = /^color\(srgb\s+([^)]+)\)$/.exec(value);
   if (srgbMatch) {
-    const inner = srgbMatch[1].split('/')[0].trim();
+    const [colorPart, slashAlpha] = srgbMatch[1].split('/');
+    if (slashAlpha !== undefined) {
+      const alphaRaw = slashAlpha.trim();
+      const alpha = alphaRaw.endsWith('%')
+        ? Number.parseFloat(alphaRaw.slice(0, -1)) / 100
+        : Number.parseFloat(alphaRaw);
+      if (!Number.isFinite(alpha) || alpha <= 0.05) {
+        return null;
+      }
+    }
+
+    const inner = colorPart.trim();
     const parts = inner.split(/\s+/).map((item) => item.trim()).filter(Boolean);
     if (parts.length < 3) {
       return null;
@@ -128,10 +161,9 @@ function resolveFallbackTheme(root: HTMLElement): ThemeMode {
   return 'light';
 }
 
-function probeBackgroundColor(root: HTMLElement, rawBackground: string): RgbColor | null {
+function probeCssVarColor(root: HTMLElement, cssVarName: string, rawValue: string): RgbColor | null {
   const probe = document.createElement('span');
-  probe.style.cssText =
-    'position:absolute;visibility:hidden;pointer-events:none;color:var(--background, #f7f7f8)';
+  probe.style.cssText = `position:absolute;visibility:hidden;pointer-events:none;color:var(${cssVarName}, transparent)`;
   root.appendChild(probe);
 
   let computedColor = '';
@@ -141,33 +173,99 @@ function probeBackgroundColor(root: HTMLElement, rawBackground: string): RgbColo
     probe.remove();
   }
 
-  return parseCssColorToRgb(computedColor) ?? parseCssColorToRgb(rawBackground);
+  return parseCssColorToRgb(computedColor) ?? parseCssColorToRgb(rawValue);
 }
 
 /**
- * 读取根元素 --background 变量（通过隐藏 DOM 探针解析 CSS 颜色函数）并同步更新 document.documentElement.dataset.theme。
+ * 读取本地保存的主题偏好（auto 跟随宿主 / light 浅色 / dark 深色）。
+ */
+export function getThemePreference(): ThemePreference {
+  try {
+    const saved = window.localStorage.getItem(THEME_PREF_STORAGE_KEY);
+    if (saved === 'light' || saved === 'dark' || saved === 'auto') {
+      return saved;
+    }
+  } catch {
+    // 忽略受限存储环境异常
+  }
+  return 'auto';
+}
+
+/**
+ * 保存主题偏好并立即应用到根元素。
+ */
+export function setThemePreference(pref: ThemePreference): ThemeMode {
+  try {
+    window.localStorage.setItem(THEME_PREF_STORAGE_KEY, pref);
+  } catch {
+    // 忽略受限存储环境异常
+  }
+  return syncThemeAttribute();
+}
+
+/**
+ * 在 auto -> light -> dark 之间循环切换主题偏好。
+ */
+export function cycleThemePreference(): { preference: ThemePreference; theme: ThemeMode } {
+  const current = getThemePreference();
+  const next: ThemePreference =
+    current === 'auto' ? 'light' : current === 'light' ? 'dark' : 'auto';
+  const theme = setThemePreference(next);
+  return { preference: next, theme };
+}
+
+/**
+ * 根据用户偏好或宿主 CSS 变量（--background / --card / --foreground）同步更新 data-theme。
  */
 export function syncThemeAttribute(): ThemeMode {
   const root = document.documentElement;
-  const rawBackground = getComputedStyle(root).getPropertyValue('--background').trim();
+  const pref = getThemePreference();
 
-  let nextTheme: ThemeMode;
+  if (pref === 'light' || pref === 'dark') {
+    root.dataset.themeOverride = pref;
+    if (root.dataset.theme !== pref) {
+      root.dataset.theme = pref;
+    }
+    return pref;
+  }
+
+  delete root.dataset.themeOverride;
+
+  const computed = getComputedStyle(root);
+  const rawBackground = computed.getPropertyValue('--background').trim();
+  const rawCard = computed.getPropertyValue('--card').trim();
+  const rawForeground = computed.getPropertyValue('--foreground').trim();
+
+  let nextTheme: ThemeMode | null = null;
+
   if (rawBackground) {
-    const rgb = probeBackgroundColor(root, rawBackground);
-    nextTheme = rgb
-      ? computeRelativeLuminance(rgb) < 0.5
-        ? 'dark'
-        : 'light'
-      : resolveFallbackTheme(root);
-  } else {
-    nextTheme = resolveFallbackTheme(root);
+    const bgRgb = probeCssVarColor(root, '--background', rawBackground);
+    if (bgRgb) {
+      nextTheme = computeRelativeLuminance(bgRgb) < 0.5 ? 'dark' : 'light';
+    }
   }
 
-  if (root.dataset.theme !== nextTheme) {
-    root.dataset.theme = nextTheme;
+  if (!nextTheme && rawCard) {
+    const cardRgb = probeCssVarColor(root, '--card', rawCard);
+    if (cardRgb) {
+      nextTheme = computeRelativeLuminance(cardRgb) < 0.5 ? 'dark' : 'light';
+    }
   }
 
-  return nextTheme;
+  if (!nextTheme && rawForeground) {
+    const fgRgb = probeCssVarColor(root, '--foreground', rawForeground);
+    if (fgRgb) {
+      nextTheme = computeRelativeLuminance(fgRgb) >= 0.5 ? 'dark' : 'light';
+    }
+  }
+
+  const resolvedTheme = nextTheme ?? resolveFallbackTheme(root);
+
+  if (root.dataset.theme !== resolvedTheme) {
+    root.dataset.theme = resolvedTheme;
+  }
+
+  return resolvedTheme;
 }
 
 /**

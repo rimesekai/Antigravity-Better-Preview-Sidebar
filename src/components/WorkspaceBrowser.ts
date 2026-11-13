@@ -51,6 +51,7 @@ function getKindShortLabel(kind: PreviewKind, ext: string): string {
   if (kind === 'ppt') return 'PPTX';
   if (kind === 'word') return 'DOCX';
   if (kind === 'pdf') return 'PDF';
+  if (kind === 'mp4') return 'MP4';
   return ext.toLowerCase() === '.htm' ? 'HTM' : 'HTML';
 }
 
@@ -95,7 +96,7 @@ export function createWorkspaceBrowser(
   heroTitle.textContent = 'File Preview';
   const heroSub = document.createElement('p');
   heroSub.className = 'fp-hero-subtitle';
-  heroSub.textContent = '侧边栏本地文档高保真预览 · 支持 .pptx / .docx / .pdf / .html';
+  heroSub.textContent = '侧边栏本地文档高保真预览 · 支持 .pptx / .docx / .pdf / .mp4 / .html';
   heroTitleBox.append(heroTitle, heroSub);
 
   heroBrand.append(logoImg, heroTitleBox);
@@ -149,7 +150,7 @@ export function createWorkspaceBrowser(
 
   const hiddenFileInput = document.createElement('input');
   hiddenFileInput.type = 'file';
-  hiddenFileInput.accept = '.pptx,.docx,.pdf,.html,.htm';
+  hiddenFileInput.accept = '.pptx,.docx,.pdf,.mp4,.html,.htm';
   hiddenFileInput.hidden = true;
   hiddenFileInput.addEventListener('change', () => {
     const picked = hiddenFileInput.files?.[0];
@@ -167,7 +168,7 @@ export function createWorkspaceBrowser(
 
   const dragTip = document.createElement('span');
   dragTip.className = 'fp-drag-tip';
-  dragTip.textContent = '或直接拖拽 .pptx / .docx / .pdf / .html 到此窗口';
+  dragTip.textContent = '或直接拖拽 .pptx / .docx / .pdf / .mp4 / .html 到此窗口';
 
   localActionsRow.append(hiddenFileInput, pickFileBtn, dragTip);
   quickOpenCard.append(pathForm, localActionsRow);
@@ -187,6 +188,7 @@ export function createWorkspaceBrowser(
     { key: 'ppt', label: 'PPT' },
     { key: 'word', label: 'Word' },
     { key: 'pdf', label: 'PDF' },
+    { key: 'mp4', label: 'MP4' },
     { key: 'html', label: 'HTML' },
   ];
 
@@ -239,6 +241,7 @@ export function createWorkspaceBrowser(
       ppt: 0,
       word: 0,
       pdf: 0,
+      mp4: 0,
       html: 0,
     };
     for (const file of latestState.files) {
@@ -289,7 +292,7 @@ export function createWorkspaceBrowser(
       const emptyEl = document.createElement('div');
       emptyEl.className = 'fp-list-empty';
       if (latestState.files.length === 0) {
-        emptyEl.textContent = '当前工作区暂未扫描到 .pptx / .docx / .pdf / .html 文档，可使用上方路径输入或直接拖拽文件打开。';
+        emptyEl.textContent = '当前工作区暂未扫描到 .pptx / .docx / .pdf / .mp4 / .html 文件，可使用上方路径输入或直接拖拽文件打开。';
       } else {
         emptyEl.textContent = '没有符合当前筛选条件的文件。';
       }
@@ -324,10 +327,10 @@ export function createWorkspaceBrowser(
       nameEl.textContent = file.name;
       nameRow.appendChild(nameEl);
 
-      if (file.kind === 'pdf' && file.size > LARGE_PDF_THRESHOLD_BYTES) {
+      if ((file.kind === 'pdf' || file.kind === 'mp4') && file.size > LARGE_PDF_THRESHOLD_BYTES) {
         const largeBadge = document.createElement('span');
         largeBadge.className = 'fp-large-pdf-badge';
-        largeBadge.textContent = '>20MB 超限可预览';
+        largeBadge.textContent = '>20MB 流式可预览';
         nameRow.appendChild(largeBadge);
       }
 

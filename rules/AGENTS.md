@@ -5,6 +5,7 @@
 - `.pptx`（PowerPoint 演示文稿）
 - `.docx`（Word 文档）
 - `.html` / `.htm`（本地网页文件）
-- 体积超过 20MB（`20,971,520` 字节，超出 Antigravity 内置 PDF 预览器限制）的 `.pdf` 文件
+- `.pdf` 文件（尤其是体积超过 20MB / `20,971,520` 字节的大体积 PDF）
+- `.mp4` 视频文件（尤其是体积超过 20MB 的大体积 MP4 视频）
 
-提示用户点击 `[File Preview](sidecar://file-preview/viewer/)` 即可在右侧边栏直接高保真查看（大体积 PDF 支持基于 HTTP Range 的按需分片流式加载）。
+提示用户点击 `[File Preview](sidecar://file-preview/viewer/)` 即可在右侧边栏直接高保真查看（大体积 PDF 与 MP4 均支持基于 HTTP Range 的按需分片流式加载）。

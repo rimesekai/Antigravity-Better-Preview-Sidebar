@@ -36,6 +36,7 @@ const mounts = new Map();
 
 /** @type {Map<string, { filePath: string, fileName: string, size: number, createdAt: number }>} */
 const pdfMounts = new Map();
+const videoMounts = new Map();
 
 const PDF_CORS_HEADERS = Object.freeze({
   'Access-Control-Allow-Origin': '*',
@@ -111,12 +112,15 @@ function parseByteRange(rangeHeader, totalSize) {
 }
 
 /**
- * 处理独立端口 PDF HTTP Range 流式预览请求：OPTIONS/GET/HEAD /p/<mountId>/<fileName>
+ * 处理独立端口 HTTP Range 流式预览请求：OPTIONS/GET/HEAD /<prefix>/<mountId>/<fileName>
  * @param {import('node:http').IncomingMessage} req
  * @param {import('node:http').ServerResponse} res
  * @param {string} rawPathname
+ * @param {Map<string, { filePath: string, fileName: string, size: number, createdAt: number }>} mountMap
+ * @param {'p' | 'v'} routePrefix
+ * @param {string} contentType
  */
-function handlePdfRequest(req, res, rawPathname) {
+function handleRangeMountRequest(req, res, rawPathname, mountMap, routePrefix, contentType) {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       ...PDF_CORS_HEADERS,
@@ -131,7 +135,8 @@ function handlePdfRequest(req, res, rawPathname) {
     return;
   }
 
-  const match = /^\/p\/([0-9a-f]{48})\/([^/]+)$/.exec(rawPathname);
+  const routeRegex = new RegExp(`^\\/${routePrefix}\\/([0-9a-f]{48})\\/([^/]+)$`);
+  const match = routeRegex.exec(rawPathname);
   if (!match) {
     sendText(res, 404, 'Not Found', PDF_CORS_HEADERS);
     return;
@@ -148,15 +153,15 @@ function handlePdfRequest(req, res, rawPathname) {
     return;
   }
 
-  const mount = pdfMounts.get(mountId);
+  const mount = mountMap.get(mountId);
   if (!mount || decodedName !== mount.fileName) {
     sendText(res, 404, 'Mount Not Found', PDF_CORS_HEADERS);
     return;
   }
 
   // 刷新 LRU 位置
-  pdfMounts.delete(mountId);
-  pdfMounts.set(mountId, mount);
+  mountMap.delete(mountId);
+  mountMap.set(mountId, mount);
 
   if (isForbiddenSystemPath(mount.filePath)) {
     sendText(res, 403, 'Forbidden', PDF_CORS_HEADERS);
@@ -180,7 +185,7 @@ function handlePdfRequest(req, res, rawPathname) {
   const baseHeaders = {
     ...PDF_CORS_HEADERS,
     'Accept-Ranges': 'bytes',
-    'Content-Type': 'application/pdf',
+    'Content-Type': contentType,
     'Content-Disposition': 'inline',
     'X-Content-Type-Options': 'nosniff',
     'Cache-Control': 'no-store',
@@ -285,7 +290,12 @@ function parseSafeSegments(rawRelPath) {
 function handlePreviewRequest(req, res) {
   const rawPathname = (req.url || '/').split('?')[0].split('#')[0];
   if (rawPathname.startsWith('/p/')) {
-    handlePdfRequest(req, res, rawPathname);
+    handleRangeMountRequest(req, res, rawPathname, pdfMounts, 'p', 'application/pdf');
+    return;
+  }
+
+  if (rawPathname.startsWith('/v/')) {
+    handleRangeMountRequest(req, res, rawPathname, videoMounts, 'v', 'video/mp4');
     return;
   }
 
@@ -478,20 +488,22 @@ export async function mountHtmlTarget(resolvedFilePath, allowedWorkspaceRoots = 
   };
 }
 
-/**
- * 将合法的本地 .pdf 文件注册为独立端口 HTTP Range 流式预览挂载点。
- * @param {string} resolvedFilePath 已通过安全校验的真实文件路径
- * @returns {Promise<{ url: string, mountId: string, fileName: string, size: number }>}
- */
-export async function mountPdfTarget(resolvedFilePath) {
+async function mountRangeTarget(
+  resolvedFilePath,
+  expectedExt,
+  routePrefix,
+  mountMap,
+  invalidCode,
+  invalidMessage,
+) {
   const realFilePath = realpathSync(resolvedFilePath);
   if (isForbiddenSystemPath(realFilePath)) {
     throw new HttpError(403, '禁止访问受保护的系统生成日志或消息目录', 'FORBIDDEN_SYSTEM_PATH');
   }
 
   const ext = extname(realFilePath).toLowerCase();
-  if (ext !== '.pdf') {
-    throw new HttpError(415, '仅支持挂载 .pdf 文件', 'INVALID_PDF_TARGET');
+  if (ext !== expectedExt) {
+    throw new HttpError(415, invalidMessage, invalidCode);
   }
 
   const stat = statSync(realFilePath);
@@ -503,26 +515,58 @@ export async function mountPdfTarget(resolvedFilePath) {
   const mountId = randomBytes(24).toString('hex');
   const fileName = basename(realFilePath);
 
-  pdfMounts.set(mountId, {
+  mountMap.set(mountId, {
     filePath: realFilePath,
     fileName,
     size: stat.size,
     createdAt: Date.now(),
   });
 
-  // LRU 上限控制，保留最近 32 个活跃 PDF 挂载
-  while (pdfMounts.size > MAX_ACTIVE_MOUNTS) {
-    const oldestKey = pdfMounts.keys().next().value;
+  // LRU 上限控制，保留最近 32 个活跃挂载
+  while (mountMap.size > MAX_ACTIVE_MOUNTS) {
+    const oldestKey = mountMap.keys().next().value;
     if (!oldestKey) break;
-    pdfMounts.delete(oldestKey);
+    mountMap.delete(oldestKey);
   }
 
   return {
-    url: `http://127.0.0.1:${port}/p/${mountId}/${encodeURIComponent(fileName)}`,
+    url: `http://127.0.0.1:${port}/${routePrefix}/${mountId}/${encodeURIComponent(fileName)}`,
     mountId,
     fileName,
     size: stat.size,
   };
+}
+
+/**
+ * 将合法的本地 .pdf 文件注册为独立端口 HTTP Range 流式预览挂载点。
+ * @param {string} resolvedFilePath 已通过安全校验的真实文件路径
+ * @returns {Promise<{ url: string, mountId: string, fileName: string, size: number }>}
+ */
+export async function mountPdfTarget(resolvedFilePath) {
+  return mountRangeTarget(
+    resolvedFilePath,
+    '.pdf',
+    'p',
+    pdfMounts,
+    'INVALID_PDF_TARGET',
+    '仅支持挂载 .pdf 文件',
+  );
+}
+
+/**
+ * 将合法的本地 .mp4 文件注册为独立端口 HTTP Range 流式播放挂载点。
+ * @param {string} resolvedFilePath 已通过安全校验的真实文件路径
+ * @returns {Promise<{ url: string, mountId: string, fileName: string, size: number }>}
+ */
+export async function mountVideoTarget(resolvedFilePath) {
+  return mountRangeTarget(
+    resolvedFilePath,
+    '.mp4',
+    'v',
+    videoMounts,
+    'INVALID_VIDEO_TARGET',
+    '仅支持挂载 .mp4 文件',
+  );
 }
 
 /**
@@ -542,12 +586,21 @@ export function getActivePdfMountCount() {
 }
 
 /**
- * 关闭独立 HTML/PDF 静态预览服务并清理所有挂载点。
+ * 获取当前活跃视频挂载数量（供测试与监控使用）。
+ * @returns {number}
+ */
+export function getActiveVideoMountCount() {
+  return videoMounts.size;
+}
+
+/**
+ * 关闭独立 HTML/PDF/MP4 静态预览服务并清理所有挂载点。
  * @returns {Promise<void>}
  */
 export async function closeHtmlServer() {
   mounts.clear();
   pdfMounts.clear();
+  videoMounts.clear();
   listeningPromise = null;
   serverPort = 0;
 

@@ -17,6 +17,7 @@ const SUPPORTED_EXTS = new Map([
   ['.pptx', 'ppt'],
   ['.docx', 'word'],
   ['.pdf', 'pdf'],
+  ['.mp4', 'mp4'],
   ['.html', 'html'],
   ['.htm', 'html'],
 ]);

@@ -5,6 +5,7 @@ import type {
   PreviewKind,
   PreviewStateInfo,
 } from '../types/preview';
+import type { ThemePreference } from '../services/themeSync';
 
 const LARGE_PDF_THRESHOLD_BYTES = 20 * 1024 * 1024;
 
@@ -25,12 +26,14 @@ export interface ToolbarRenderState {
   hasError: boolean;
   autoRefresh: boolean;
   drawerOpen: boolean;
+  themePreference?: ThemePreference;
 }
 
 export interface ToolbarCallbacks {
   onToggleDrawer: () => void;
   onRefresh: () => void;
   onToggleAutoRefresh: () => void;
+  onCycleTheme?: () => void;
   onZoomChange: (zoom: number | 'fit') => void;
   onPrevPage: () => void;
   onNextPage: () => void;
@@ -71,6 +74,7 @@ function formatKindBadge(kind: PreviewKind, ext: string): string {
   if (kind === 'ppt') return 'PPTX';
   if (kind === 'word') return 'DOCX';
   if (kind === 'pdf') return 'PDF';
+  if (kind === 'mp4') return 'MP4';
   return ext.toLowerCase() === '.htm' ? 'HTM' : 'HTML';
 }
 
@@ -175,7 +179,14 @@ export function createToolbar(
   autoRefreshBtn.append(autoDot, autoText);
   autoRefreshBtn.addEventListener('click', () => callbacks.onToggleAutoRefresh());
 
-  rightGroup.append(refreshBtn, autoRefreshBtn);
+  const themeBtn = document.createElement('button');
+  themeBtn.type = 'button';
+  themeBtn.className = 'fp-btn fp-btn-ghost';
+  themeBtn.title = '切换主题模式（跟随宿主 / 浅色 / 深色）';
+  themeBtn.textContent = '主题';
+  themeBtn.addEventListener('click', () => callbacks.onCycleTheme?.());
+
+  rightGroup.append(themeBtn, refreshBtn, autoRefreshBtn);
   primaryRow.append(leftGroup, rightGroup);
 
   // 第二行：格式专属工具条
@@ -593,7 +604,8 @@ export function createToolbar(
       fileNameEl.textContent = file.name;
       fileNameEl.title = file.isLocalDrop ? `${file.name}（本地拖拽文件）` : file.path;
       largePdfBadge.hidden = !(
-        file.kind === 'pdf' && (file.size ?? 0) > LARGE_PDF_THRESHOLD_BYTES
+        (file.kind === 'pdf' || file.kind === 'mp4') &&
+        (file.size ?? 0) > LARGE_PDF_THRESHOLD_BYTES
       );
       dropTag.hidden = !file.isLocalDrop;
     } else {
@@ -612,7 +624,17 @@ export function createToolbar(
       ? '每 2.5 秒检查一次磁盘修改时间并自动刷新'
       : '拖拽的本地内存文件无磁盘路径，暂不支持自动监听刷新';
 
-    const showFormatRow = Boolean(file && !state.hasError);
+    const themePref = state.themePreference ?? 'auto';
+    themeBtn.textContent =
+      themePref === 'light' ? '浅色' : themePref === 'dark' ? '深色' : '自动';
+    themeBtn.title =
+      themePref === 'light'
+        ? '当前：浅色模式（点击切换为深色）'
+        : themePref === 'dark'
+          ? '当前：深色模式（点击切换为跟随宿主）'
+          : '当前：跟随宿主主题（点击切换为浅色）';
+
+    const showFormatRow = Boolean(file && !state.hasError && file.kind !== 'mp4');
     secondaryRow.hidden = !showFormatRow;
     if (!showFormatRow || !file) {
       pptGroup.hidden = true;

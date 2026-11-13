@@ -1,4 +1,4 @@
-export type PreviewKind = 'ppt' | 'word' | 'html' | 'pdf';
+export type PreviewKind = 'ppt' | 'word' | 'html' | 'pdf' | 'mp4';
 
 export const LARGE_PDF_THRESHOLD_BYTES = 20 * 1024 * 1024;
 
@@ -24,6 +24,13 @@ export interface HtmlMountInfo {
 }
 
 export interface PdfMountInfo {
+  url: string;
+  mountId: string;
+  fileName: string;
+  size: number;
+}
+
+export interface VideoMountInfo {
   url: string;
   mountId: string;
   fileName: string;
@@ -61,6 +68,11 @@ export interface PreviewRenderer {
   loadPdf?(
     mountInfo: PdfMountInfo | null,
     buffer: ArrayBuffer | null,
+    meta: { name: string; path: string; ext: string; size?: number }
+  ): Promise<void>;
+  loadVideo?(
+    mountInfo: VideoMountInfo | null,
+    objectUrl: string | null,
     meta: { name: string; path: string; ext: string; size?: number }
   ): Promise<void>;
   refresh?(): Promise<void>;

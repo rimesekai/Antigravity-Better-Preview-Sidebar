@@ -32,6 +32,38 @@
   --fp-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
 }
 
+:root[data-theme-override="light"] {
+  color-scheme: light;
+  --fp-bg: #f7f7f8;
+  --fp-fg: #1d1f21;
+  --fp-card: #ffffff;
+  --fp-secondary: #e6e7e9;
+  --fp-muted: #eff0f1;
+  --fp-muted-fg: #5d676f;
+  --fp-primary: #1a73e8;
+  --fp-border: rgba(0, 0, 0, 0.08);
+  --fp-error: #dc2626;
+  --fp-hover: rgba(15, 23, 42, 0.06);
+  --fp-active-soft: rgba(26, 115, 232, 0.12);
+  --fp-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+:root[data-theme-override="dark"] {
+  color-scheme: dark;
+  --fp-bg: #0f141c;
+  --fp-fg: #e6edf3;
+  --fp-card: #161d27;
+  --fp-secondary: #1d2633;
+  --fp-muted: #1a222d;
+  --fp-muted-fg: #8b98a8;
+  --fp-primary: #3b82f6;
+  --fp-border: rgba(148, 163, 184, 0.2);
+  --fp-error: #ef4444;
+  --fp-hover: rgba(148, 163, 184, 0.12);
+  --fp-active-soft: rgba(59, 130, 246, 0.16);
+  --fp-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+}
+
 *,
 *::before,
 *::after {
@@ -49,8 +81,8 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--fp-bg);
-  color: var(--fp-fg);
+  background: var(--fp-bg) !important;
+  color: var(--fp-fg) !important;
   font-family: var(--fp-font);
   font-size: 13px;
   line-height: 1.45;
@@ -68,8 +100,8 @@ body {
   flex-direction: column;
   width: 100%;
   height: 100%;
-  background: var(--fp-bg);
-  color: var(--fp-fg);
+  background: var(--fp-bg) !important;
+  color: var(--fp-fg) !important;
 }
 
 /* ==================== 顶部工具栏 ==================== */
@@ -177,6 +209,18 @@ body {
   color: #ea4335;
   background: rgba(234, 67, 53, 0.12);
   border-color: rgba(234, 67, 53, 0.3);
+}
+
+.fp-kind-badge[data-kind="mp4"] {
+  color: #7c3aed;
+  background: rgba(124, 58, 237, 0.12);
+  border-color: rgba(124, 58, 237, 0.3);
+}
+
+:root[data-theme="dark"] .fp-kind-badge[data-kind="mp4"] {
+  color: #c4b5fd;
+  background: rgba(139, 92, 246, 0.16);
+  border-color: rgba(139, 92, 246, 0.36);
 }
 
 .fp-large-pdf-badge {

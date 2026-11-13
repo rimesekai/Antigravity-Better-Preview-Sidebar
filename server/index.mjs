@@ -2,13 +2,14 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { SidecarApp, Response } from 'sidecar_sdk';
-import { closeHtmlServer, mountHtmlTarget, mountPdfTarget } from './htmlServer.mjs';
+import { closeHtmlServer, mountHtmlTarget, mountPdfTarget, mountVideoTarget } from './htmlServer.mjs';
 import { HttpError, validateFilePath } from './pathSecurity.mjs';
 import { scanWorkspaceFiles } from './workspaceScanner.mjs';
 
 const PLUGIN_VERSION = '0.1.0';
 const MAX_READ_BYTES = 200 * 1024 * 1024; // 200 MB 安全上限
 const MAX_PDF_BYTES = 1024 * 1024 * 1024; // 1 GB PDF 流式预览安全上限
+const MAX_VIDEO_BYTES = 4 * 1024 * 1024 * 1024; // 4 GB MP4 流式播放安全上限
 
 /**
  * 解析插件根目录与 dist/ 产物目录（兼容从 server/index.mjs 与 dist/server.mjs 运行）。
@@ -112,6 +113,7 @@ export function registerRoutes(app, options = {}) {
   const assetsDir = options.assetsDir || defaultPaths.assetsDir;
   const mountHtml = options.mountHtml || mountHtmlTarget;
   const mountPdf = options.mountPdf || mountPdfTarget;
+  const mountVideo = options.mountVideo || mountVideoTarget;
   const allowedRootsOverride = options.allowedRootsOverride || null;
 
   // 静态页面与脚本资源路由（SidecarApp 为精确匹配）
@@ -237,6 +239,34 @@ export function registerRoutes(app, options = {}) {
       }
 
       const mounted = await mountPdf(info.path);
+      return {
+        url: mounted.url,
+        mountId: mounted.mountId,
+        fileName: info.name,
+        size: info.size,
+      };
+    }, ResponseClass),
+    'POST',
+  );
+
+  // 挂载 MP4 文件到独立端口 HTTP Range 流式播放服务
+  app.api(
+    '/api/video/mount',
+    withErrorHandling(async (data) => {
+      const info = validateFilePath(data.file, {
+        workspaceUris: data.workspaceUris,
+        allowedRootsOverride,
+      });
+
+      if (info.kind !== 'mp4') {
+        throw new HttpError(415, '仅支持将 .mp4 文件挂载到流式播放服务', 'NOT_VIDEO_FILE');
+      }
+
+      if (info.size > MAX_VIDEO_BYTES) {
+        throw new HttpError(413, 'MP4 文件体积超过 4GB 预览上限', 'FILE_TOO_LARGE');
+      }
+
+      const mounted = await mountVideo(info.path);
       return {
         url: mounted.url,
         mountId: mounted.mountId,

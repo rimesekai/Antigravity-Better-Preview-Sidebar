@@ -680,6 +680,32 @@ describe('SidecarApp HTTP 路由集成测试', () => {
     });
     assert.equal(nonPdfMount.status, 415);
 
+    // MP4 挂载与 HTTP Range 流式播放
+    const mp4Path = join(workspaceDir, 'demo.mp4');
+    writeFileSync(mp4Path, Buffer.from('0123456789ABCDEF'));
+    const videoMountRes = await fetch(`${baseUrl}/api/video/mount`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ file: mp4Path, workspaceUris: [workspaceDir] }),
+    });
+    assert.equal(videoMountRes.status, 200);
+    const videoMountJson = await videoMountRes.json();
+    assert.equal(videoMountJson.fileName, 'demo.mp4');
+    assert.equal(videoMountJson.size, 16);
+
+    const videoRangeRes = await fetch(videoMountJson.url, { headers: { Range: 'bytes=4-9' } });
+    assert.equal(videoRangeRes.status, 206);
+    assert.equal(videoRangeRes.headers.get('content-type'), 'video/mp4');
+    assert.equal(videoRangeRes.headers.get('accept-ranges'), 'bytes');
+    assert.equal(await videoRangeRes.text(), '456789');
+
+    const nonVideoMount = await fetch(`${baseUrl}/api/video/mount`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ file: join(workspaceDir, 'demo.pptx'), workspaceUris: [workspaceDir] }),
+    });
+    assert.equal(nonVideoMount.status, 415);
+
     // 旧版 .doc 返回 415
     const docStat = await fetch(`${baseUrl}/api/fs/stat`, {
       method: 'POST',
