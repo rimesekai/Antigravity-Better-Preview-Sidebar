@@ -3,7 +3,6 @@ import './renderers/renderers.css';
 import type {
   FileStatInfo,
   HtmlPreviewMode,
-  PdfViewMode,
   PptLayoutMode,
   PreviewKind,
   PreviewRenderer,
@@ -239,9 +238,6 @@ function bootstrap(): void {
     onHtmlModeChange: (mode: HtmlPreviewMode) => {
       activeRenderer?.setHtmlMode?.(mode);
     },
-    onPdfModeChange: (mode: PdfViewMode) => {
-      activeRenderer?.setPdfMode?.(mode);
-    },
   });
 
   const browserCallbacks = {
@@ -443,7 +439,6 @@ function bootstrap(): void {
       : {
           kind,
           ...(kind === 'html' ? { htmlMode: 'sandbox' } : {}),
-          ...(kind === 'pdf' ? { pdfMode: 'canvas' } : {}),
         };
 
     renderer.onStateChange?.((nextState) => {
@@ -480,9 +475,6 @@ function bootstrap(): void {
         renderer.goToPage?.(preserved.page);
       }
     } else if (kind === 'pdf') {
-      if (preserved.pdfMode) {
-        renderer.setPdfMode?.(preserved.pdfMode);
-      }
       if (preserved.layoutMode) {
         renderer.setLayoutMode?.(preserved.layoutMode);
       }

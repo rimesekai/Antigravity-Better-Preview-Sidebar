@@ -39,7 +39,6 @@ export interface VideoMountInfo {
 
 export type HtmlPreviewMode = 'sandbox' | 'interactive' | 'source';
 export type PptLayoutMode = 'slide' | 'list';
-export type PdfViewMode = 'canvas' | 'native';
 
 export interface PreviewStateInfo {
   kind: PreviewKind;
@@ -52,7 +51,6 @@ export interface PreviewStateInfo {
   searchMatches?: number;
   activeMatch?: number;
   htmlMode?: HtmlPreviewMode;
-  pdfMode?: PdfViewMode;
   fileSize?: number;
   warning?: string;
 }
@@ -86,7 +84,6 @@ export interface PreviewRenderer {
   nextMatch?(): void;
   prevMatch?(): void;
   setHtmlMode?(mode: HtmlPreviewMode): void;
-  setPdfMode?(mode: PdfViewMode): void;
   onStateChange?(cb: (info: PreviewStateInfo) => void): void;
   destroy(): void;
 }

@@ -1,6 +1,5 @@
 import type {
   HtmlPreviewMode,
-  PdfViewMode,
   PptLayoutMode,
   PreviewKind,
   PreviewStateInfo,
@@ -44,7 +43,6 @@ export interface ToolbarCallbacks {
   onNextMatch: () => void;
   onPrevMatch: () => void;
   onHtmlModeChange: (mode: HtmlPreviewMode) => void;
-  onPdfModeChange: (mode: PdfViewMode) => void;
 }
 
 export interface ToolbarController {
@@ -197,29 +195,6 @@ export function createToolbar(
   const pptGroup = document.createElement('div');
   pptGroup.className = 'fp-format-controls fp-format-ppt';
   pptGroup.hidden = true;
-
-  const pdfModeSeg = document.createElement('div');
-  pdfModeSeg.className = 'fp-segmented';
-  pdfModeSeg.hidden = true;
-
-  const pdfCanvasBtn = document.createElement('button');
-  pdfCanvasBtn.type = 'button';
-  pdfCanvasBtn.className = 'fp-seg-btn';
-  pdfCanvasBtn.textContent = '画布';
-  pdfCanvasBtn.addEventListener('click', () => callbacks.onPdfModeChange('canvas'));
-
-  const pdfNativeBtn = document.createElement('button');
-  pdfNativeBtn.type = 'button';
-  pdfNativeBtn.className = 'fp-seg-btn';
-  pdfNativeBtn.textContent = '原生';
-  pdfNativeBtn.addEventListener('click', () => callbacks.onPdfModeChange('native'));
-
-  pdfModeSeg.append(pdfCanvasBtn, pdfNativeBtn);
-
-  const pdfNativeHint = document.createElement('span');
-  pdfNativeHint.className = 'fp-toolbar-hint';
-  pdfNativeHint.textContent = '流式原生 PDF 视图';
-  pdfNativeHint.hidden = true;
 
   const pptLayoutSeg = document.createElement('div');
   pptLayoutSeg.className = 'fp-segmented';
@@ -397,8 +372,6 @@ export function createToolbar(
   pptSearchCluster.append(searchInput, searchCountEl, prevMatchBtn, nextMatchBtn);
 
   pptGroup.append(
-    pdfModeSeg,
-    pdfNativeHint,
     pptLayoutSeg,
     pptThumbBtn,
     pptPageCluster,
@@ -491,19 +464,12 @@ export function createToolbar(
 
   function updatePagedControls(preview: PreviewStateInfo | null, kind: PreviewKind): void {
     const isPdf = kind === 'pdf';
-    const pdfMode: PdfViewMode = preview?.pdfMode ?? 'canvas';
-    const isNativePdf = isPdf && pdfMode === 'native';
 
-    pdfModeSeg.hidden = !isPdf;
-    pdfCanvasBtn.classList.toggle('is-active', pdfMode === 'canvas');
-    pdfNativeBtn.classList.toggle('is-active', pdfMode === 'native');
-    pdfNativeHint.hidden = !isNativePdf;
-
-    pptLayoutSeg.hidden = isNativePdf;
-    pptThumbBtn.hidden = isNativePdf;
-    pptPageCluster.hidden = isNativePdf;
-    pptZoomCluster.hidden = isNativePdf;
-    pptSearchCluster.hidden = isNativePdf;
+    pptLayoutSeg.hidden = false;
+    pptThumbBtn.hidden = false;
+    pptPageCluster.hidden = false;
+    pptZoomCluster.hidden = false;
+    pptSearchCluster.hidden = false;
 
     if (isPdf) {
       pptThumbBtn.title = '切换页面缩略图栏';
@@ -513,10 +479,6 @@ export function createToolbar(
       pptThumbBtn.title = '切换幻灯片缩略图栏';
       searchInput.placeholder = '搜索幻灯片 (回车)';
       searchInput.setAttribute('aria-label', '搜索幻灯片文本');
-    }
-
-    if (isNativePdf) {
-      return;
     }
 
     const page = preview?.page ?? 1;

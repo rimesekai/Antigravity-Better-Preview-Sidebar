@@ -8,7 +8,6 @@ import type {
 } from 'pdfjs-dist';
 import type {
   PdfMountInfo,
-  PdfViewMode,
   PptLayoutMode,
   PreviewRenderer,
   PreviewStateInfo,
@@ -105,7 +104,6 @@ export function createPdfRenderer(): PreviewRenderer {
   let thumbsListEl: HTMLElement | null = null;
   let scrollEl: HTMLElement | null = null;
   let stageEl: HTMLElement | null = null;
-  let nativeFrameEl: HTMLIFrameElement | null = null;
 
   let loadingTask: PDFDocumentLoadingTask | null = null;
   let pdfDoc: PDFDocumentProxy | null = null;
@@ -118,12 +116,10 @@ export function createPdfRenderer(): PreviewRenderer {
   let currentMountInfo: PdfMountInfo | null = null;
   let currentBuffer: ArrayBuffer | null = null;
   let currentMeta: { name: string; path: string; ext: string; size?: number } | null = null;
-  let nativeBlobUrl: string | null = null;
 
   let destroyed = false;
   let loadGeneration = 0;
 
-  let pdfMode: PdfViewMode = 'canvas';
   let layoutMode: PptLayoutMode = 'list';
   let thumbnailsVisible = false;
   let fitMode = true;
@@ -153,7 +149,6 @@ export function createPdfRenderer(): PreviewRenderer {
     const fileSize = currentMeta?.size ?? currentMountInfo?.size ?? currentBuffer?.byteLength;
     const info: PreviewStateInfo = {
       kind: 'pdf',
-      pdfMode,
       fileSize,
       page: totalPages > 0 ? currentPage : undefined,
       totalPages: totalPages > 0 ? totalPages : undefined,
@@ -171,13 +166,6 @@ export function createPdfRenderer(): PreviewRenderer {
       } catch (err) {
         console.error('[pdfRenderer] state listener error:', err);
       }
-    }
-  }
-
-  function revokeNativeBlobUrl(): void {
-    if (nativeBlobUrl) {
-      URL.revokeObjectURL(nativeBlobUrl);
-      nativeBlobUrl = null;
     }
   }
 
@@ -370,7 +358,7 @@ export function createPdfRenderer(): PreviewRenderer {
   }
 
   async function renderPageSlot(slot: PageSlot, gen: number): Promise<void> {
-    if (destroyed || gen !== loadGeneration || !pdfDoc || pdfMode !== 'canvas') {
+    if (destroyed || gen !== loadGeneration || !pdfDoc) {
       return;
     }
 
@@ -394,7 +382,7 @@ export function createPdfRenderer(): PreviewRenderer {
     } catch {
       return;
     }
-    if (destroyed || gen !== loadGeneration || !pdfDoc || pdfMode !== 'canvas') {
+    if (destroyed || gen !== loadGeneration || !pdfDoc) {
       return;
     }
 
@@ -455,7 +443,7 @@ export function createPdfRenderer(): PreviewRenderer {
       }
     }
 
-    if (destroyed || gen !== loadGeneration || pdfMode !== 'canvas') {
+    if (destroyed || gen !== loadGeneration) {
       return;
     }
 
@@ -464,7 +452,7 @@ export function createPdfRenderer(): PreviewRenderer {
     // 渲染可选择/高亮文本层
     try {
       const textContent = await page.getTextContent();
-      if (destroyed || gen !== loadGeneration || pdfMode !== 'canvas') return;
+      if (destroyed || gen !== loadGeneration) return;
       const textTask = renderTextLayer({
         textContentSource: textContent,
         container: slot.textLayerEl,
@@ -568,7 +556,7 @@ export function createPdfRenderer(): PreviewRenderer {
 
   function buildThumbnails(): void {
     disposeThumbnails();
-    if (!thumbnailsVisible || !thumbsListEl || !pdfDoc || pdfMode !== 'canvas') {
+    if (!thumbnailsVisible || !thumbsListEl || !pdfDoc) {
       return;
     }
 
@@ -692,17 +680,10 @@ export function createPdfRenderer(): PreviewRenderer {
   }
 
   function renderCanvasStage(): void {
-    if (destroyed || !stageEl || !scrollEl || !pdfDoc || pdfMode !== 'canvas') return;
+    if (destroyed || !stageEl || !scrollEl || !pdfDoc) return;
 
     disposeStage();
     const gen = loadGeneration;
-
-    if (nativeFrameEl) {
-      nativeFrameEl.src = 'about:blank';
-      nativeFrameEl.remove();
-      nativeFrameEl = null;
-    }
-    revokeNativeBlobUrl();
 
     if (thumbsPanelEl) {
       thumbsPanelEl.hidden = !thumbnailsVisible;
@@ -772,46 +753,6 @@ export function createPdfRenderer(): PreviewRenderer {
 
     if (thumbnailsVisible) {
       buildThumbnails();
-    }
-  }
-
-  function renderNativeStage(): void {
-    if (destroyed || !bodyEl || !scrollEl) return;
-
-    disposeStage();
-    disposeThumbnails();
-    if (thumbsPanelEl) {
-      thumbsPanelEl.hidden = true;
-    }
-    scrollEl.hidden = true;
-
-    if (nativeFrameEl) {
-      nativeFrameEl.src = 'about:blank';
-      nativeFrameEl.remove();
-      nativeFrameEl = null;
-    }
-    revokeNativeBlobUrl();
-
-    const iframe = document.createElement('iframe');
-    iframe.className = 'fp-pdf-native-frame';
-    iframe.title = currentMeta ? `PDF 原生预览: ${currentMeta.name}` : 'PDF 原生预览';
-
-    if (currentMountInfo?.url) {
-      iframe.src = currentMountInfo.url;
-    } else if (currentBuffer) {
-      nativeBlobUrl = URL.createObjectURL(new Blob([currentBuffer], { type: 'application/pdf' }));
-      iframe.src = nativeBlobUrl;
-    }
-
-    nativeFrameEl = iframe;
-    bodyEl.appendChild(iframe);
-  }
-
-  function renderActiveMode(): void {
-    if (pdfMode === 'native') {
-      renderNativeStage();
-    } else {
-      renderCanvasStage();
     }
   }
 
@@ -916,7 +857,7 @@ export function createPdfRenderer(): PreviewRenderer {
       }
     }
 
-    renderActiveMode();
+    renderCanvasStage();
     emitState();
   }
 
@@ -925,19 +866,17 @@ export function createPdfRenderer(): PreviewRenderer {
     const clamped = clamp(Math.round(page), 1, totalPages);
     currentPage = clamped;
 
-    if (pdfMode === 'canvas') {
-      if (layoutMode === 'slide') {
-        renderCanvasStage();
-      } else {
-        const slot = pageSlots.get(clamped);
-        if (slot) {
-          slot.boxEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          void renderPageSlot(slot, loadGeneration);
-        }
-        releaseFarPages(clamped);
+    if (layoutMode === 'slide') {
+      renderCanvasStage();
+    } else {
+      const slot = pageSlots.get(clamped);
+      if (slot) {
+        slot.boxEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        void renderPageSlot(slot, loadGeneration);
       }
-      updateActiveThumbnail();
+      releaseFarPages(clamped);
     }
+    updateActiveThumbnail();
 
     emitState();
   }
@@ -977,36 +916,34 @@ export function createPdfRenderer(): PreviewRenderer {
     const match = searchMatches[index];
     currentPage = match.page;
 
-    if (pdfMode === 'canvas') {
-      if (layoutMode === 'slide') {
-        renderCanvasStage();
-      } else {
-        const slot = pageSlots.get(match.page);
-        if (slot) {
-          slot.boxEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
+    if (layoutMode === 'slide') {
+      renderCanvasStage();
+    } else {
+      const slot = pageSlots.get(match.page);
+      if (slot) {
+        slot.boxEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
-      const targetSlot = pageSlots.get(match.page);
-      if (targetSlot) {
-        await renderPageSlot(targetSlot, loadGeneration);
-        applyHighlightsToPage(match.page);
-        const activeMark = targetSlot.textLayerEl.querySelector('mark.fp-pdf-search-hit.is-active');
-        if (activeMark) {
-          activeMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      }
-      for (const p of visiblePageSet) {
-        if (p !== match.page) {
-          applyHighlightsToPage(p);
-        }
-      }
-      updateActiveThumbnail();
     }
+    const targetSlot = pageSlots.get(match.page);
+    if (targetSlot) {
+      await renderPageSlot(targetSlot, loadGeneration);
+      applyHighlightsToPage(match.page);
+      const activeMark = targetSlot.textLayerEl.querySelector('mark.fp-pdf-search-hit.is-active');
+      if (activeMark) {
+        activeMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+    for (const p of visiblePageSet) {
+      if (p !== match.page) {
+        applyHighlightsToPage(p);
+      }
+    }
+    updateActiveThumbnail();
     emitState();
   }
 
   function handleKeyDown(e: KeyboardEvent): void {
-    if (destroyed || pdfMode !== 'canvas' || totalPages <= 0) return;
+    if (destroyed || totalPages <= 0) return;
     if (e.defaultPrevented || e.isComposing) return;
     if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
     if (isEditableTarget(e.target)) return;
@@ -1066,7 +1003,7 @@ export function createPdfRenderer(): PreviewRenderer {
         if (scrollSyncRaf !== null) return;
         scrollSyncRaf = window.requestAnimationFrame(() => {
           scrollSyncRaf = null;
-          if (!destroyed && pdfMode === 'canvas') {
+          if (!destroyed) {
             syncVisiblePageFromScroll();
           }
         });
@@ -1083,13 +1020,13 @@ export function createPdfRenderer(): PreviewRenderer {
 
       if (typeof ResizeObserver !== 'undefined') {
         resizeObserver = new ResizeObserver(() => {
-          if (destroyed || !fitMode || pdfMode !== 'canvas' || !pdfDoc) return;
+          if (destroyed || !fitMode || !pdfDoc) return;
           if (resizeTimer !== null) {
             window.clearTimeout(resizeTimer);
           }
           resizeTimer = window.setTimeout(() => {
             resizeTimer = null;
-            if (destroyed || !fitMode || pdfMode !== 'canvas' || !pdfDoc) return;
+            if (destroyed || !fitMode || !pdfDoc) return;
             updateAllSlotSizes();
             for (const p of visiblePageSet) {
               const slot = pageSlots.get(p);
@@ -1134,7 +1071,7 @@ export function createPdfRenderer(): PreviewRenderer {
         return;
       }
 
-      if (pdfMode === 'canvas' && pdfDoc) {
+      if (pdfDoc) {
         updateAllSlotSizes();
         for (const p of visiblePageSet) {
           const slot = pageSlots.get(p);
@@ -1155,7 +1092,7 @@ export function createPdfRenderer(): PreviewRenderer {
       if (layoutMode === mode) return;
       layoutMode = mode;
 
-      if (pdfMode === 'canvas' && pdfDoc) {
+      if (pdfDoc) {
         const target = currentPage;
         renderCanvasStage();
         if (mode === 'list' && target > 1) {
@@ -1171,28 +1108,13 @@ export function createPdfRenderer(): PreviewRenderer {
       if (next === thumbnailsVisible) return;
       thumbnailsVisible = next;
       if (thumbsPanelEl) {
-        thumbsPanelEl.hidden = !thumbnailsVisible || pdfMode !== 'canvas';
+        thumbsPanelEl.hidden = !thumbnailsVisible;
       }
-      if (pdfMode === 'canvas' && pdfDoc) {
+      if (pdfDoc) {
         if (thumbnailsVisible) {
           buildThumbnails();
         } else {
           disposeThumbnails();
-        }
-      }
-      emitState();
-    },
-
-    setPdfMode(mode: PdfViewMode): void {
-      if (mode !== 'canvas' && mode !== 'native') return;
-      if (pdfMode === mode) return;
-      pdfMode = mode;
-
-      if (pdfDoc || currentMountInfo || currentBuffer) {
-        renderActiveMode();
-        if (mode === 'canvas' && layoutMode === 'list' && currentPage > 1) {
-          const slot = pageSlots.get(currentPage);
-          slot?.boxEl.scrollIntoView({ behavior: 'instant', block: 'start' });
         }
       }
       emitState();
@@ -1204,7 +1126,7 @@ export function createPdfRenderer(): PreviewRenderer {
       searchMatches = [];
       activeMatchIndex = -1;
 
-      if (!trimmed || !pdfDoc || pdfMode !== 'canvas') {
+      if (!trimmed || !pdfDoc) {
         for (const p of visiblePageSet) {
           applyHighlightsToPage(p);
         }
@@ -1284,13 +1206,6 @@ export function createPdfRenderer(): PreviewRenderer {
         resizeObserver.disconnect();
         resizeObserver = null;
       }
-
-      if (nativeFrameEl) {
-        nativeFrameEl.src = 'about:blank';
-        nativeFrameEl.remove();
-        nativeFrameEl = null;
-      }
-      revokeNativeBlobUrl();
 
       void disposeDocument();
 
