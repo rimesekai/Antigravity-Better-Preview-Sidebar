@@ -1,0 +1,382 @@
+/* ==========================================================================
+ * Word Renderer (.fp-word-*)
+ * ========================================================================== */
+
+.fp-word-root {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--background, #0f172a);
+  color: var(--foreground, #f8fafc);
+  font-family: var(--font-family, system-ui, -apple-system, sans-serif);
+}
+
+.fp-word-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 4px;
+  box-sizing: border-box;
+}
+
+.fp-word-sizer {
+  position: relative;
+  margin: 12px auto 20px;
+}
+
+.fp-word-scale-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: max-content;
+  transform-origin: top left;
+}
+
+.fp-word-stage .docx-wrapper {
+  background: transparent !important;
+  padding: 12px !important;
+  margin: 0 !important;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.fp-word-stage .docx-wrapper > section.docx {
+  background: #ffffff !important;
+  color: #111827 !important;
+  box-shadow:
+    0 4px 18px rgba(0, 0, 0, 0.2),
+    0 1px 4px rgba(0, 0, 0, 0.12) !important;
+  border-radius: 2px;
+  margin-bottom: 16px !important;
+}
+
+.fp-word-stage .docx-wrapper > section.docx:last-child {
+  margin-bottom: 0 !important;
+}
+
+/* ==========================================================================
+ * PPT Renderer (.fp-ppt-*)
+ * ========================================================================== */
+
+.fp-ppt-root {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--background, #0f172a);
+  color: var(--foreground, #f8fafc);
+  font-family: var(--font-family, system-ui, -apple-system, sans-serif);
+}
+
+.fp-ppt-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.fp-ppt-thumbs {
+  width: 148px;
+  flex: 0 0 148px;
+  display: flex;
+  flex-direction: column;
+  background: var(--card, rgba(15, 23, 42, 0.72));
+  border-right: 1px solid var(--border, rgba(148, 163, 184, 0.22));
+  overflow: hidden;
+}
+
+.fp-ppt-thumbs[hidden] {
+  display: none !important;
+}
+
+.fp-ppt-thumbs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted-foreground, #94a3b8);
+  border-bottom: 1px solid var(--border, rgba(148, 163, 184, 0.2));
+  flex: 0 0 auto;
+}
+
+.fp-ppt-thumbs-close {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground, #94a3b8);
+  cursor: pointer;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.fp-ppt-thumbs-close:hover {
+  background: var(--secondary, rgba(148, 163, 184, 0.16));
+  color: var(--foreground, #f8fafc);
+}
+
+.fp-ppt-thumbs-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fp-ppt-thumb-item {
+  appearance: none;
+  border: 2px solid var(--border, rgba(148, 163, 184, 0.24));
+  background: var(--background, #0f172a);
+  border-radius: 6px;
+  padding: 4px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+  flex: 0 0 auto;
+}
+
+.fp-ppt-thumb-item:hover {
+  border-color: var(--muted-foreground, #94a3b8);
+}
+
+.fp-ppt-thumb-item.is-active {
+  border-color: var(--primary, #3b82f6);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.22);
+}
+
+.fp-ppt-thumb-preview {
+  width: 112px;
+  min-height: 63px;
+  background: #ffffff;
+  border-radius: 3px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fp-ppt-thumb-label {
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--muted-foreground, #94a3b8);
+  font-variant-numeric: tabular-nums;
+}
+
+.fp-ppt-thumb-item.is-active .fp-ppt-thumb-label {
+  color: var(--primary, #3b82f6);
+  font-weight: 600;
+}
+
+.fp-ppt-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+  box-sizing: border-box;
+}
+
+.fp-ppt-stage {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+}
+
+@media (max-width: 560px) {
+  .fp-ppt-body {
+    flex-direction: column-reverse;
+  }
+
+  .fp-ppt-thumbs {
+    width: 100%;
+    height: 116px;
+    flex: 0 0 116px;
+    border-right: none;
+    border-top: 1px solid var(--border, rgba(148, 163, 184, 0.22));
+  }
+
+  .fp-ppt-thumbs-header {
+    padding: 4px 10px;
+  }
+
+  .fp-ppt-thumbs-list {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 6px 8px;
+  }
+
+  .fp-ppt-thumb-preview {
+    width: 96px;
+    min-height: 54px;
+  }
+}
+
+/* ==========================================================================
+ * HTML Renderer (.fp-html-*)
+ * ========================================================================== */
+
+.fp-html-root {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--background, #0f172a);
+  color: var(--foreground, #f8fafc);
+  font-family: var(--font-family, system-ui, -apple-system, sans-serif);
+}
+
+.fp-html-warning {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  background: rgba(245, 158, 11, 0.14);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.35);
+  color: var(--foreground, #f8fafc);
+}
+
+.fp-html-warning[hidden] {
+  display: none !important;
+}
+
+.fp-html-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.fp-html-frame-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.fp-html-iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  background: #ffffff;
+}
+
+.fp-html-source {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--card, rgba(15, 23, 42, 0.72));
+  overflow: hidden;
+}
+
+.fp-html-source-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border, rgba(148, 163, 184, 0.2));
+  background: var(--secondary, rgba(148, 163, 184, 0.08));
+}
+
+.fp-html-source-meta {
+  font-size: 12px;
+  color: var(--muted-foreground, #94a3b8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fp-html-copy-btn {
+  appearance: none;
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.3));
+  background: var(--background, #0f172a);
+  color: var(--foreground, #f8fafc);
+  border-radius: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.fp-html-copy-btn:hover {
+  border-color: var(--primary, #3b82f6);
+}
+
+.fp-html-copy-btn.is-copied {
+  border-color: var(--primary, #3b82f6);
+  color: var(--primary, #3b82f6);
+}
+
+.fp-html-source-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  font-family: var(
+    --editor-font-family,
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    monospace
+  );
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.fp-html-gutter {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 12px 10px 12px 12px;
+  min-width: 36px;
+  text-align: right;
+  color: var(--muted-foreground, #64748b);
+  border-right: 1px solid var(--border, rgba(148, 163, 184, 0.16));
+  user-select: none;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.fp-html-code {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 12px 16px;
+  white-space: pre;
+  tab-size: 2;
+  color: var(--foreground, #f8fafc);
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
