@@ -1,6 +1,6 @@
 import { realpathSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, extname, join, resolve, sep } from 'node:path';
+import { basename, extname, join, posix, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
@@ -123,15 +123,16 @@ export function isForbiddenSystemPath(targetPath) {
  * @returns {boolean}
  */
 export function isPathWithinRoot(targetPath, rootPath, platform = process.platform) {
-  let target = resolve(targetPath);
-  let root = resolve(rootPath);
+  const pathApi = platform === 'win32' ? win32 : posix;
+  let target = pathApi.resolve(targetPath);
+  let root = pathApi.resolve(rootPath);
 
   if (platform === 'win32') {
     target = target.toLowerCase();
     root = root.toLowerCase();
   }
 
-  const prefix = root.endsWith(sep) ? root : `${root}${sep}`;
+  const prefix = root.endsWith(pathApi.sep) ? root : `${root}${pathApi.sep}`;
   return target === root || target.startsWith(prefix);
 }
 

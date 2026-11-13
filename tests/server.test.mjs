@@ -13,6 +13,7 @@ import { registerHooks } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import * as XLSX from 'xlsx';
 
 // 注册轻量 sidecar_sdk mock，模拟 Antigravity 宿主注入的 SidecarApp 与 Response 精确行为
@@ -239,7 +240,7 @@ describe('pathSecurity 路径安全与格式分类测试', () => {
   });
 
   it('正确解析 file:// URI 与 ~/ 路径并拒绝空字节', () => {
-    const parsedFromUri = parseInputPath(`file:///${join(workspaceDir, 'deck.pptx').replace(/\\/g, '/')}`);
+    const parsedFromUri = parseInputPath(pathToFileURL(join(workspaceDir, 'deck.pptx')).href);
     assert.equal(parsedFromUri.toLowerCase(), join(workspaceDir, 'deck.pptx').toLowerCase());
 
     const homeExpanded = parseInputPath('~/demo.docx');
@@ -256,6 +257,9 @@ describe('pathSecurity 路径安全与格式分类测试', () => {
     assert.equal(isPathWithinRoot('D:\\projects\\demo\\a.pptx', 'd:\\Projects', 'win32'), true);
     assert.equal(isPathWithinRoot('D:\\ProjectsOther\\a.pptx', 'D:\\Projects', 'win32'), false);
     assert.equal(isPathWithinRoot('E:\\a.pptx', 'D:\\', 'win32'), false);
+    assert.equal(isPathWithinRoot('/home/user/demo/a.pptx', '/home/user', 'linux'), true);
+    assert.equal(isPathWithinRoot('/home/User/demo/a.pptx', '/home/user', 'linux'), false);
+    assert.equal(isPathWithinRoot('/etc/passwd', '/', 'linux'), true);
   });
 
   it('拦截 .system_generated/logs 与 .system_generated/messages', () => {
@@ -551,7 +555,7 @@ describe('workspaceScanner 工作区扫描测试', () => {
   });
 
   it('跳过 node_modules / dist / .git 并限制最大递归深度为 5', () => {
-    const files = scanWorkspaceFiles([`file:///${tempRoot.replace(/\\/g, '/')}`]);
+    const files = scanWorkspaceFiles([pathToFileURL(tempRoot).href]);
     const relPaths = files.map((f) => f.relPath).sort();
 
     assert.deepEqual(relPaths, [

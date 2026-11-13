@@ -67,10 +67,10 @@ After installation, reload or restart Antigravity plugins, then trigger `/file-p
 
 ## Build & Test from Source
 
-On Windows PowerShell, use `npm.cmd` (and add `--omit=optional` to skip `pdfjs-dist`'s optional `canvas` / `tar` dependency when you only need tests and builds):
+On Windows PowerShell, use `npm.cmd`. Note that `vite` / `esbuild` rely on platform-specific binaries inside `optionalDependencies`, so run a standard `npm install` without `--omit=optional` when building from source:
 
 ```powershell
-npm.cmd install --omit=optional
+npm.cmd install
 npx.cmd tsc --noEmit
 npm.cmd test
 npm.cmd run build

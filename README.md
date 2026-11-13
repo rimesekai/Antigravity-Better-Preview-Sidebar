@@ -63,10 +63,10 @@ npm.cmd run install:local
 
 ## 从源码构建与测试
 
-在 Windows PowerShell 中请使用 `npm.cmd`（避免 `.ps1` 执行策略限制）；若不需要为测试环境安装 `pdfjs-dist` 的可选服务端依赖 `canvas`（`node-pre-gyp` / `tar`），建议加上 `--omit=optional`：
+在 Windows PowerShell 中请使用 `npm.cmd`（避免 `.ps1` 执行策略限制），构建和打包需要安装平台对应的 `esbuild` / `rollup` 原生二进制依赖（位于 `optionalDependencies` 中，因此**不要**带 `--omit=optional`）：
 
 ```powershell
-npm.cmd install --omit=optional --registry=https://registry.npmmirror.com
+npm.cmd install --registry=https://registry.npmmirror.com
 npx.cmd tsc --noEmit
 npm.cmd test
 npm.cmd run build
