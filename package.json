@@ -6,6 +6,14 @@
   "description": "Antigravity 侧边栏 PPT / Word / Excel / PDF / MP4 / HTML 文件预览插件",
   "author": "rimesekai <353441533+rimesekai@users.noreply.github.com>",
   "license": "MIT",
+  "homepage": "https://github.com/rimesekai/Antigravity-Better-Preview-Sidebar#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rimesekai/Antigravity-Better-Preview-Sidebar.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rimesekai/Antigravity-Better-Preview-Sidebar/issues"
+  },
   "engines": {
     "node": ">=20.0.0"
   },

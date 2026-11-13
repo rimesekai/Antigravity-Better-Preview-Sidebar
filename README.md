@@ -18,8 +18,8 @@
 本仓库已包含可直接运行的预构建产物 `dist/`。克隆仓库后无需额外安装依赖，直接执行本地安装脚本即可部署到全局插件目录 `~/.gemini/config/plugins/file-preview/`：
 
 ```powershell
-git clone <你的仓库地址>
-cd file-preview
+git clone https://github.com/rimesekai/Antigravity-Better-Preview-Sidebar.git
+cd Antigravity-Better-Preview-Sidebar
 npm.cmd run install:local
 ```
 
