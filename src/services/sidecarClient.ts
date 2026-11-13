@@ -1,6 +1,7 @@
 import type {
   FileStatInfo,
   HtmlMountInfo,
+  PdfMountInfo,
   WorkspaceFileItem,
 } from '../types/preview';
 
@@ -118,7 +119,7 @@ function fallbackMessageByStatus(status: number): string {
     case 413:
       return '文件体积超过 200MB 预览上限，无法直接加载。';
     case 415:
-      return '暂不支持该文件格式，当前仅支持 .pptx、.docx、.html 和 .htm。';
+      return '暂不支持该文件格式，当前仅支持 .pptx、.docx、.pdf、.html 和 .htm。';
     default:
       return status >= 500
         ? `预览服务内部异常（HTTP ${status}），请稍后重试。`
@@ -252,6 +253,14 @@ export async function listWorkspaceFiles(): Promise<WorkspaceFileItem[]> {
 export async function mountHtmlFile(file: string): Promise<HtmlMountInfo> {
   const workspaceUris = await getWorkspaceUrisSafe();
   return postJson<HtmlMountInfo>('/api/html/mount', { file, workspaceUris });
+}
+
+/**
+ * 将本地 PDF 文件挂载到流式 Range 预览端点，返回可流式加载的 URL 与挂载信息。
+ */
+export async function mountPdfFile(file: string): Promise<PdfMountInfo> {
+  const workspaceUris = await getWorkspaceUrisSafe();
+  return postJson<PdfMountInfo>('/api/pdf/mount', { file, workspaceUris });
 }
 
 /**

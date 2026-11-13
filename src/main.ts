@@ -3,6 +3,7 @@ import './renderers/renderers.css';
 import type {
   FileStatInfo,
   HtmlPreviewMode,
+  PdfViewMode,
   PptLayoutMode,
   PreviewKind,
   PreviewRenderer,
@@ -12,10 +13,12 @@ import type {
 import { createWordRenderer } from './renderers/wordRenderer';
 import { createPptRenderer } from './renderers/pptRenderer';
 import { createHtmlRenderer } from './renderers/htmlRenderer';
+import { createPdfRenderer } from './renderers/pdfRenderer';
 import {
   SidecarApiError,
   listWorkspaceFiles,
   mountHtmlFile,
+  mountPdfFile,
   readFileBuffer,
   readFileText,
   statFile,
@@ -26,7 +29,7 @@ import { createWorkspaceBrowser } from './components/WorkspaceBrowser';
 
 type ActiveSource =
   | { type: 'disk'; path: string; stat: FileStatInfo }
-  | { type: 'local'; name: string; ext: string; kind: PreviewKind };
+  | { type: 'local'; name: string; ext: string; kind: PreviewKind; size: number };
 
 const AUTO_REFRESH_INTERVAL_MS = 2500;
 
@@ -40,6 +43,7 @@ function classifyDroppedFile(fileName: string): {
   const ext = dotIdx >= 0 ? fileName.slice(dotIdx).toLowerCase() : '';
   if (ext === '.pptx') return { kind: 'ppt', ext };
   if (ext === '.docx') return { kind: 'word', ext };
+  if (ext === '.pdf') return { kind: 'pdf', ext };
   if (ext === '.html' || ext === '.htm') return { kind: 'html', ext };
 
   if (ext === '.ppt') {
@@ -62,7 +66,7 @@ function classifyDroppedFile(fileName: string): {
     kind: null,
     ext,
     errorTitle: '不支持的文件格式',
-    errorMessage: `当前仅支持 .pptx、.docx、.html 和 .htm 文件（收到：${ext || '无扩展名'}）。`,
+    errorMessage: `当前仅支持 .pptx、.docx、.pdf、.html 和 .htm 文件（收到：${ext || '无扩展名'}）。`,
   };
 }
 
@@ -72,6 +76,8 @@ function createRendererForKind(kind: PreviewKind): PreviewRenderer {
       return createWordRenderer();
     case 'ppt':
       return createPptRenderer();
+    case 'pdf':
+      return createPdfRenderer();
     case 'html':
       return createHtmlRenderer();
   }
@@ -133,12 +139,12 @@ function bootstrap(): void {
   dropOverlay.className = 'fp-drop-overlay';
   dropOverlay.hidden = true;
   dropOverlay.innerHTML =
-    '<div class="fp-drop-box"><div class="fp-drop-title">松开鼠标即可预览</div><div class="fp-drop-sub">支持 .pptx / .docx / .html / .htm 本地文件</div></div>';
+    '<div class="fp-drop-box"><div class="fp-drop-title">松开鼠标即可预览</div><div class="fp-drop-sub">支持 .pptx / .docx / .pdf / .html / .htm 本地文件</div></div>';
 
   // 错误页内使用的隐藏文件选择器
   const fallbackFileInput = document.createElement('input');
   fallbackFileInput.type = 'file';
-  fallbackFileInput.accept = '.pptx,.docx,.html,.htm';
+  fallbackFileInput.accept = '.pptx,.docx,.pdf,.html,.htm';
   fallbackFileInput.hidden = true;
 
   mainStage.append(welcomeHost, previewHost, drawerBackdrop, drawerPanel);
@@ -157,7 +163,7 @@ function bootstrap(): void {
   let previewState: PreviewStateInfo | null = null;
   let isLoading = false;
   let activeError: { title: string; message: string; code?: string; retryPath?: string } | null = null;
-  let autoRefreshEnabled = false;
+  let autoRefreshEnabled = true;
   let isPollingStat = false;
   let loadRequestSeq = 0;
 
@@ -218,6 +224,9 @@ function bootstrap(): void {
     },
     onHtmlModeChange: (mode: HtmlPreviewMode) => {
       activeRenderer?.setHtmlMode?.(mode);
+    },
+    onPdfModeChange: (mode: PdfViewMode) => {
+      activeRenderer?.setPdfMode?.(mode);
     },
   });
 
@@ -339,6 +348,7 @@ function bootstrap(): void {
         path: currentSource.stat.path,
         ext: currentSource.stat.ext,
         kind: currentSource.stat.kind,
+        size: currentSource.stat.size,
         isLocalDrop: false,
       };
     }
@@ -347,6 +357,7 @@ function bootstrap(): void {
       path: currentSource.name,
       ext: currentSource.ext,
       kind: currentSource.kind,
+      size: currentSource.size,
       isLocalDrop: true,
     };
   }
@@ -417,6 +428,7 @@ function bootstrap(): void {
       : {
           kind,
           ...(kind === 'html' ? { htmlMode: 'sandbox' } : {}),
+          ...(kind === 'pdf' ? { pdfMode: 'canvas' } : {}),
         };
 
     renderer.onStateChange?.((nextState) => {
@@ -438,6 +450,24 @@ function bootstrap(): void {
     if (kind === 'html' && preserved.htmlMode && preserved.htmlMode !== 'sandbox') {
       renderer.setHtmlMode?.(preserved.htmlMode);
     } else if (kind === 'ppt') {
+      if (preserved.layoutMode) {
+        renderer.setLayoutMode?.(preserved.layoutMode);
+      }
+      if (preserved.thumbnailsVisible !== undefined) {
+        renderer.toggleThumbnails?.(preserved.thumbnailsVisible);
+      }
+      if (preserved.fitMode) {
+        renderer.setZoom?.('fit');
+      } else if (typeof preserved.zoom === 'number') {
+        renderer.setZoom?.(preserved.zoom);
+      }
+      if (typeof preserved.page === 'number' && preserved.page > 1) {
+        renderer.goToPage?.(preserved.page);
+      }
+    } else if (kind === 'pdf') {
+      if (preserved.pdfMode) {
+        renderer.setPdfMode?.(preserved.pdfMode);
+      }
       if (preserved.layoutMode) {
         renderer.setLayoutMode?.(preserved.layoutMode);
       }
@@ -531,6 +561,20 @@ function bootstrap(): void {
         });
         if (reqId !== loadRequestSeq) return;
         applyPreservedViewOptions(renderer, 'html', preserved);
+      } else if (stat.kind === 'pdf') {
+        const mountInfo = await mountPdfFile(stat.path);
+        if (reqId !== loadRequestSeq) return;
+
+        currentSource = { type: 'disk', path: stat.path, stat };
+        const renderer = mountRendererWithState('pdf', preserved);
+        await renderer.loadPdf?.(mountInfo, null, {
+          name: stat.name,
+          path: stat.path,
+          ext: stat.ext,
+          size: stat.size,
+        });
+        if (reqId !== loadRequestSeq) return;
+        applyPreservedViewOptions(renderer, 'pdf', preserved);
       } else {
         const buffer = await readFileBuffer(stat.path);
         if (reqId !== loadRequestSeq) return;
@@ -597,7 +641,7 @@ function bootstrap(): void {
       currentSource = null;
       setErrorState(
         classified.errorTitle || '不支持的文件格式',
-        classified.errorMessage || '仅支持 .pptx、.docx、.html 和 .htm 文件。',
+        classified.errorMessage || '仅支持 .pptx、.docx、.pdf、.html 和 .htm 文件。',
       );
       return;
     }
@@ -607,6 +651,7 @@ function bootstrap(): void {
       name: file.name,
       ext: classified.ext,
       kind: classified.kind,
+      size: file.size,
     };
     activeError = null;
     isLoading = true;
@@ -623,6 +668,17 @@ function bootstrap(): void {
           name: file.name,
           path: file.name,
           ext: classified.ext,
+        });
+      } else if (classified.kind === 'pdf') {
+        const buffer = await file.arrayBuffer();
+        if (reqId !== loadRequestSeq) return;
+
+        const renderer = mountRendererWithState('pdf');
+        await renderer.loadPdf?.(null, buffer, {
+          name: file.name,
+          path: file.name,
+          ext: classified.ext,
+          size: file.size,
         });
       } else {
         const buffer = await file.arrayBuffer();

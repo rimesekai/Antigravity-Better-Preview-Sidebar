@@ -1,5 +1,7 @@
 import type { PreviewKind, WorkspaceFileItem } from '../types/preview';
 
+const LARGE_PDF_THRESHOLD_BYTES = 20 * 1024 * 1024;
+
 export type BrowserKindFilter = 'all' | PreviewKind;
 
 export interface WorkspaceBrowserState {
@@ -48,6 +50,7 @@ function formatModifiedTime(mtimeMs: number): string {
 function getKindShortLabel(kind: PreviewKind, ext: string): string {
   if (kind === 'ppt') return 'PPTX';
   if (kind === 'word') return 'DOCX';
+  if (kind === 'pdf') return 'PDF';
   return ext.toLowerCase() === '.htm' ? 'HTM' : 'HTML';
 }
 
@@ -92,7 +95,7 @@ export function createWorkspaceBrowser(
   heroTitle.textContent = 'File Preview';
   const heroSub = document.createElement('p');
   heroSub.className = 'fp-hero-subtitle';
-  heroSub.textContent = '侧边栏本地文档高保真预览 · 支持 .pptx / .docx / .html';
+  heroSub.textContent = '侧边栏本地文档高保真预览 · 支持 .pptx / .docx / .pdf / .html';
   heroTitleBox.append(heroTitle, heroSub);
 
   heroBrand.append(logoImg, heroTitleBox);
@@ -146,7 +149,7 @@ export function createWorkspaceBrowser(
 
   const hiddenFileInput = document.createElement('input');
   hiddenFileInput.type = 'file';
-  hiddenFileInput.accept = '.pptx,.docx,.html,.htm';
+  hiddenFileInput.accept = '.pptx,.docx,.pdf,.html,.htm';
   hiddenFileInput.hidden = true;
   hiddenFileInput.addEventListener('change', () => {
     const picked = hiddenFileInput.files?.[0];
@@ -164,7 +167,7 @@ export function createWorkspaceBrowser(
 
   const dragTip = document.createElement('span');
   dragTip.className = 'fp-drag-tip';
-  dragTip.textContent = '或直接拖拽 .pptx / .docx / .html 到此窗口';
+  dragTip.textContent = '或直接拖拽 .pptx / .docx / .pdf / .html 到此窗口';
 
   localActionsRow.append(hiddenFileInput, pickFileBtn, dragTip);
   quickOpenCard.append(pathForm, localActionsRow);
@@ -183,6 +186,7 @@ export function createWorkspaceBrowser(
     { key: 'all', label: '全部' },
     { key: 'ppt', label: 'PPT' },
     { key: 'word', label: 'Word' },
+    { key: 'pdf', label: 'PDF' },
     { key: 'html', label: 'HTML' },
   ];
 
@@ -234,6 +238,7 @@ export function createWorkspaceBrowser(
       all: latestState.files.length,
       ppt: 0,
       word: 0,
+      pdf: 0,
       html: 0,
     };
     for (const file of latestState.files) {
@@ -284,7 +289,7 @@ export function createWorkspaceBrowser(
       const emptyEl = document.createElement('div');
       emptyEl.className = 'fp-list-empty';
       if (latestState.files.length === 0) {
-        emptyEl.textContent = '当前工作区暂未扫描到 .pptx / .docx / .html 文档，可使用上方路径输入或直接拖拽文件打开。';
+        emptyEl.textContent = '当前工作区暂未扫描到 .pptx / .docx / .pdf / .html 文档，可使用上方路径输入或直接拖拽文件打开。';
       } else {
         emptyEl.textContent = '没有符合当前筛选条件的文件。';
       }
@@ -311,9 +316,20 @@ export function createWorkspaceBrowser(
       const info = document.createElement('div');
       info.className = 'fp-file-info';
 
+      const nameRow = document.createElement('div');
+      nameRow.className = 'fp-file-name-row';
+
       const nameEl = document.createElement('div');
       nameEl.className = 'fp-file-name';
       nameEl.textContent = file.name;
+      nameRow.appendChild(nameEl);
+
+      if (file.kind === 'pdf' && file.size > LARGE_PDF_THRESHOLD_BYTES) {
+        const largeBadge = document.createElement('span');
+        largeBadge.className = 'fp-large-pdf-badge';
+        largeBadge.textContent = '>20MB 超限可预览';
+        nameRow.appendChild(largeBadge);
+      }
 
       const metaEl = document.createElement('div');
       metaEl.className = 'fp-file-meta';
@@ -322,7 +338,7 @@ export function createWorkspaceBrowser(
         ? `${file.relPath} · ${formatBytes(file.size)} · ${timeText}`
         : `${file.relPath} · ${formatBytes(file.size)}`;
 
-      info.append(nameEl, metaEl);
+      info.append(nameRow, metaEl);
       itemBtn.append(badge, info);
       fragment.appendChild(itemBtn);
     }

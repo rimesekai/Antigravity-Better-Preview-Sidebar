@@ -1,5 +1,23 @@
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
+  --fp-bg: var(--background, #f7f7f8);
+  --fp-fg: var(--foreground, #1d1f21);
+  --fp-card: var(--card, #ffffff);
+  --fp-secondary: var(--secondary, #e6e7e9);
+  --fp-muted: var(--muted, #eff0f1);
+  --fp-muted-fg: var(--muted-foreground, #5d676f);
+  --fp-primary: var(--primary, #1a73e8);
+  --fp-border: var(--border, rgba(0, 0, 0, 0.08));
+  --fp-error: var(--error, #dc2626);
+  --fp-font: var(--font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif);
+  --fp-mono: var(--editor-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  --fp-hover: color-mix(in srgb, var(--fp-fg) 6%, transparent);
+  --fp-active-soft: color-mix(in srgb, var(--fp-primary) 12%, transparent);
+  --fp-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
   --fp-bg: var(--background, #0f141c);
   --fp-fg: var(--foreground, #e6edf3);
   --fp-card: var(--card, #161d27);
@@ -9,31 +27,9 @@
   --fp-primary: var(--primary, #3b82f6);
   --fp-border: var(--border, rgba(148, 163, 184, 0.2));
   --fp-error: var(--error, #ef4444);
-  --fp-font: var(--font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif);
-  --fp-mono: var(--editor-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   --fp-hover: rgba(148, 163, 184, 0.12);
   --fp-active-soft: rgba(59, 130, 246, 0.16);
   --fp-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
-}
-
-:root[data-theme="light"] {
-  color-scheme: light;
-  --fp-bg: var(--background, #f7f8fa);
-  --fp-fg: var(--foreground, #111827);
-  --fp-card: var(--card, #ffffff);
-  --fp-secondary: var(--secondary, #eef1f5);
-  --fp-muted: var(--muted, #f1f5f9);
-  --fp-muted-fg: var(--muted-foreground, #64748b);
-  --fp-primary: var(--primary, #2563eb);
-  --fp-border: var(--border, rgba(15, 23, 42, 0.12));
-  --fp-error: var(--error, #dc2626);
-  --fp-hover: rgba(15, 23, 42, 0.06);
-  --fp-active-soft: rgba(37, 99, 235, 0.12);
-  --fp-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
-}
-
-:root[data-theme="dark"] {
-  color-scheme: dark;
 }
 
 *,
@@ -175,6 +171,33 @@ body {
   color: #10b981;
   background: rgba(16, 185, 129, 0.12);
   border-color: rgba(16, 185, 129, 0.3);
+}
+
+.fp-kind-badge[data-kind="pdf"] {
+  color: #ea4335;
+  background: rgba(234, 67, 53, 0.12);
+  border-color: rgba(234, 67, 53, 0.3);
+}
+
+.fp-large-pdf-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+:root[data-theme="dark"] .fp-large-pdf-badge {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.36);
 }
 
 /* ==================== 通用按钮与表单控件 ==================== */
@@ -639,7 +662,15 @@ body {
   min-width: 0;
 }
 
+.fp-file-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .fp-file-name {
+  min-width: 0;
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
