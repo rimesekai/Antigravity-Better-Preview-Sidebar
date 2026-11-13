@@ -20,6 +20,7 @@ const requiredEntries = [
   'sidecars',
   'dist',
   'README.md',
+  'LICENSE',
 ];
 
 for (const entry of requiredEntries) {

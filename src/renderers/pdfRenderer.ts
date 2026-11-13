@@ -769,10 +769,13 @@ export function createPdfRenderer(): PreviewRenderer {
             rangeChunkSize: RANGE_CHUNK_SIZE,
             disableAutoFetch: true,
             disableStream: false,
+            // 禁用 PDF.js 中的 Function/eval 字形解析路径，缓解 CVE-2024-4367（GHSA-wgrm-67xf-hhpq）
+            isEvalSupported: false,
           }
         : buffer
           ? {
               data: new Uint8Array(buffer.slice(0)),
+              isEvalSupported: false,
             }
           : (() => {
               throw new Error('缺少 PDF 数据源或挂载 URL');
