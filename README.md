@@ -8,7 +8,7 @@
       <img src="https://github.com/rimesekai/Antigravity-Better-Preview-Sidebar/actions/workflows/ci.yml/badge.svg" alt="CI Status" />
     </a>
     <a href="https://github.com/rimesekai/Antigravity-Better-Preview-Sidebar/releases">
-      <img src="https://img.shields.io/badge/version-v0.2.0-2563eb.svg" alt="Version v0.2.0" />
+      <img src="https://img.shields.io/badge/version-v0.3.0-2563eb.svg" alt="Version v0.3.0" />
     </a>
     <a href="./LICENSE">
       <img src="https://img.shields.io/badge/License-MIT-16a34a.svg" alt="License: MIT" />

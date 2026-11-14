@@ -639,7 +639,7 @@ describe('SidecarApp HTTP 路由集成测试', () => {
   it('GET /api/health 与静态页面路由返回正确内容且静态缓存按 mtime 失效', async () => {
     const healthRes = await fetch(`${baseUrl}/api/health`);
     assert.equal(healthRes.status, 200);
-    assert.deepEqual(await healthRes.json(), { status: 'ok', version: '0.2.0' });
+    assert.deepEqual(await healthRes.json(), { status: 'ok', version: '0.3.0' });
 
     const pageRes = await fetch(`${baseUrl}/`);
     assert.equal(pageRes.status, 200);

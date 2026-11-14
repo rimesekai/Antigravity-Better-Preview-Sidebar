@@ -7,7 +7,7 @@ import { closeHtmlServer, mountHtmlTarget, mountPdfTarget, mountVideoTarget } fr
 import { HttpError, validateFilePath } from './pathSecurity.mjs';
 import { scanWorkspaceFiles } from './workspaceScanner.mjs';
 
-const PLUGIN_VERSION = '0.2.0';
+const PLUGIN_VERSION = '0.3.0';
 const MAX_PARSED_READ_BYTES = 60 * 1024 * 1024; // 60 MB：Excel/PPT/Word 等需一次性载入渲染进程内存解析的格式上限
 const MAX_TEXT_READ_BYTES = 80 * 1024 * 1024; // 80 MB：其余由 /api/fs/read 直接读取的文件上限
 const MAX_PDF_BYTES = 1024 * 1024 * 1024; // 1 GB PDF 流式预览安全上限
