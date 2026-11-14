@@ -1,5 +1,9 @@
 import { renderAsync } from 'docx-preview';
-import type { PreviewRenderer, PreviewStateInfo } from '../types/preview';
+import type {
+  PreviewRenderer,
+  PreviewStateInfo,
+} from '../types/preview';
+import { createDragPanner, type DragPannerController } from '../utils/dragPanner';
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2.0;
@@ -61,6 +65,7 @@ export function createWordRenderer(): PreviewRenderer {
   let stageEl: HTMLElement | null = null;
 
   let resizeObserver: ResizeObserver | null = null;
+  let dragPanner: DragPannerController | null = null;
   let rafLayoutId: number | null = null;
   let rafScrollId: number | null = null;
   let loadGeneration = 0;
@@ -98,6 +103,7 @@ export function createWordRenderer(): PreviewRenderer {
         console.error('[wordRenderer] state listener error:', err);
       }
     }
+    dragPanner?.syncState();
   }
 
   function getPageSections(): HTMLElement[] {
@@ -123,6 +129,7 @@ export function createWordRenderer(): PreviewRenderer {
 
     if (rawWidth <= 0 || rawHeight <= 0) {
       if (totalChanged) emitState();
+      dragPanner?.syncState();
       return;
     }
 
@@ -149,6 +156,7 @@ export function createWordRenderer(): PreviewRenderer {
     if (zoomChanged || totalChanged) {
       emitState();
     }
+    dragPanner?.syncState();
   }
 
   function scheduleLayout(): void {
@@ -369,6 +377,7 @@ export function createWordRenderer(): PreviewRenderer {
     const prevActiveIdx = preserveViewState ? activeMatchIndex : -1;
 
     const gen = ++loadGeneration;
+    dragPanner?.reset();
     clearSearchHighlights();
     stageEl.innerHTML = '';
     totalPages = 0;
@@ -447,6 +456,26 @@ export function createWordRenderer(): PreviewRenderer {
 
       viewportEl.addEventListener('scroll', handleViewportScroll, { passive: true });
 
+      // 挂载放大后鼠标拖拽平移控制器（悬停文字选字、空白处拖拽平移）
+      dragPanner?.destroy();
+      dragPanner = createDragPanner({
+        getScrollContainer: () => viewportEl,
+        isEnabled: () => {
+          if (destroyed || fitMode) return false;
+          if (manualZoom > 1) return true;
+          const scrollContainer = viewportEl;
+          return (
+            scrollContainer !== null &&
+            (scrollContainer.scrollWidth > scrollContainer.clientWidth + 2 ||
+              scrollContainer.scrollHeight > scrollContainer.clientHeight + 2)
+          );
+        },
+      });
+      viewportEl.addEventListener('mousedown', dragPanner.handleMouseDown);
+      viewportEl.addEventListener('mousemove', dragPanner.handleHoverMove, { passive: true });
+      viewportEl.addEventListener('mouseleave', dragPanner.handleMouseLeave);
+      viewportEl.addEventListener('click', dragPanner.handleClickCapture, true);
+
       if (typeof ResizeObserver !== 'undefined') {
         resizeObserver = new ResizeObserver(() => {
           scheduleLayout();
@@ -477,6 +506,7 @@ export function createWordRenderer(): PreviewRenderer {
       if (zoom === 'fit') {
         fitMode = true;
         updateLayout();
+        dragPanner?.syncState();
         emitState();
         return;
       }
@@ -484,6 +514,7 @@ export function createWordRenderer(): PreviewRenderer {
       fitMode = false;
       manualZoom = clamp(zoom, MIN_ZOOM, MAX_ZOOM);
       updateLayout();
+      dragPanner?.syncState();
       emitState();
     },
 
@@ -571,7 +602,15 @@ export function createWordRenderer(): PreviewRenderer {
       }
       if (viewportEl) {
         viewportEl.removeEventListener('scroll', handleViewportScroll);
+        if (dragPanner) {
+          viewportEl.removeEventListener('mousedown', dragPanner.handleMouseDown);
+          viewportEl.removeEventListener('mousemove', dragPanner.handleHoverMove);
+          viewportEl.removeEventListener('mouseleave', dragPanner.handleMouseLeave);
+          viewportEl.removeEventListener('click', dragPanner.handleClickCapture, true);
+        }
       }
+      dragPanner?.destroy();
+      dragPanner = null;
       if (stageEl) {
         stageEl.innerHTML = '';
       }

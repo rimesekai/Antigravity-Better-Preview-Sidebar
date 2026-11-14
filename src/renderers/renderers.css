@@ -215,6 +215,18 @@
   min-height: 100%;
 }
 
+.fp-ppt-stage.is-slide-mode {
+  display: flex;
+  flex-direction: column;
+  align-items: safe center;
+}
+
+.fp-ppt-stage.is-slide-mode > * {
+  margin-block: auto !important;
+  margin-inline: 0 !important;
+  flex-shrink: 0;
+}
+
 @media (max-width: 560px) {
   .fp-ppt-body {
     flex-direction: column-reverse;
@@ -396,6 +408,14 @@
   align-items: center;
   min-width: min-content;
   min-height: 100%;
+}
+
+.fp-pdf-stage.is-slide-mode {
+  align-items: stretch;
+}
+
+.fp-pdf-stage.is-slide-mode > .fp-pdf-page-box {
+  margin: auto;
 }
 
 .fp-pdf-page-box {
@@ -1107,4 +1127,68 @@
 :root[data-theme="dark"] .fp-excel-cell.fp-excel-search-hit.is-active,
 :root[data-theme-override="dark"] .fp-excel-cell.fp-excel-search-hit.is-active {
   background: rgba(59, 130, 246, 0.32);
+}
+
+/* ==========================================================================
+ * 缩放后拖拽平移视口 (.is-pannable / .is-over-text / .is-panning) 与文本选区高亮
+ * ========================================================================== */
+
+/* 确保 PPT / Word 舞台在非拖拽平移状态下可选中文字 */
+.fp-ppt-scroll:not(.is-panning) .fp-ppt-stage,
+.fp-word-viewport:not(.is-panning) .fp-word-stage {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.fp-ppt-scroll.is-pannable:not(.is-panning),
+.fp-pdf-scroll.is-pannable:not(.is-panning),
+.fp-word-viewport.is-pannable:not(.is-panning) {
+  cursor: grab;
+}
+
+/* 鼠标停留在文字上或 PDF 文本层节点上时自动切换为选字光标 */
+.fp-ppt-scroll.is-pannable.is-over-text:not(.is-panning),
+.fp-pdf-scroll.is-pannable.is-over-text:not(.is-panning),
+.fp-word-viewport.is-pannable.is-over-text:not(.is-panning),
+.fp-pdf-scroll.is-pannable:not(.is-panning) .fp-pdf-text-layer :is(span, br) {
+  cursor: text;
+}
+
+/* 交互式链接与按钮仍保持指针手型 */
+.fp-ppt-scroll.is-pannable:not(.is-panning) :is(a, button, [role="link"]),
+.fp-pdf-scroll.is-pannable:not(.is-panning) :is(a, button, [role="link"]),
+.fp-word-viewport.is-pannable:not(.is-panning) :is(a, button, [role="link"]) {
+  cursor: pointer;
+}
+
+.fp-ppt-scroll.is-panning,
+.fp-pdf-scroll.is-panning,
+.fp-word-viewport.is-panning,
+.fp-ppt-scroll.is-panning *,
+.fp-pdf-scroll.is-panning *,
+.fp-word-viewport.is-panning * {
+  cursor: grabbing !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+/* 增强预览文本的原生选中高亮可见度 */
+.fp-ppt-stage ::selection,
+.fp-word-stage ::selection,
+.fp-html-code ::selection {
+  background: rgba(37, 99, 235, 0.28);
+  color: inherit;
+}
+
+:root[data-theme="dark"] .fp-html-code ::selection,
+:root[data-theme-override="dark"] .fp-html-code ::selection {
+  background: rgba(59, 130, 246, 0.4);
+  color: #ffffff;
+}
+
+/* PDF 透明文本层保留透明字形，仅以高对比度半透明蓝色高亮选区 */
+.fp-pdf-text-layer ::selection,
+.fp-pdf-text-layer :is(span, br)::selection {
+  color: transparent;
+  background: rgba(37, 99, 235, 0.34);
 }

@@ -903,3 +903,964 @@ describe('xlsx 内存工作簿多工作表、合并单元格与公式无损读�
     assert.equal(parsedDetail['C3']?.v, 120);
   });
 });
+
+describe('PPTX 大条目 ZIP 限额与错误格式化测试', () => {
+  it('构造 5100+ 条目内存 .pptx：RECOMMENDED_ZIP_LIMITS 报错而 PPTX_ZIP_LIMITS 可成功解析并读取幻灯片与惰性媒体', async () => {
+    const [{ default: JSZip }, pptxBrowser, pptConfig] = await Promise.all([
+      import('jszip'),
+      import('@aiden0z/pptx-renderer/browser'),
+      import('../src/utils/pptConfig.ts'),
+    ]);
+    const { parseZipLazyMedia, RECOMMENDED_ZIP_LIMITS } = pptxBrowser;
+    const { PPTX_ZIP_LIMITS, PPTX_EMBEDDED_FONT_LIMITS, formatPptLoadError } = pptConfig;
+
+    assert.equal(RECOMMENDED_ZIP_LIMITS.maxEntries, 4000);
+    assert.equal(PPTX_ZIP_LIMITS.maxEntries, 50_000);
+    assert.equal(PPTX_EMBEDDED_FONT_LIMITS.maxFaces, 32);
+
+    const zip = new JSZip();
+    const contentTypesXml =
+      '<?xml version="1.0" encoding="UTF-8"?>' +
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="png" ContentType="image/png"/>' +
+      '</Types>';
+    const presentationXml =
+      '<?xml version="1.0" encoding="UTF-8"?>' +
+      '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" ' +
+      'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+      '<p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst>' +
+      '</p:presentation>';
+    const presentationRelsXml =
+      '<?xml version="1.0" encoding="UTF-8"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/>' +
+      '</Relationships>';
+    const slide1Xml =
+      '<?xml version="1.0" encoding="UTF-8"?>' +
+      '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">' +
+      '<p:cSld><p:spTree><p:sp><p:txBody><a:p xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:r><a:t>数字逻辑构件测试</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>' +
+      '</p:sld>';
+    const pngPayload = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+    zip.file('[Content_Types].xml', contentTypesXml);
+    zip.file('ppt/presentation.xml', presentationXml);
+    zip.file('ppt/_rels/presentation.xml.rels', presentationRelsXml);
+    zip.file('ppt/slides/slide1.xml', slide1Xml);
+    zip.file('ppt/media/image1.png', pngPayload);
+
+    // 追加 5100 个媒体条目，使总条目数达到 5105（模拟 5097+ 条目的大型课件）
+    const tinyAsset = new Uint8Array([1, 2, 3, 4]);
+    for (let i = 0; i < 5100; i += 1) {
+      zip.file(`ppt/media/asset_${i}.bin`, tinyAsset, { compression: 'STORE' });
+    }
+
+    const nodeBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'STORE' });
+    const arrayBuffer = nodeBuffer.buffer.slice(
+      nodeBuffer.byteOffset,
+      nodeBuffer.byteOffset + nodeBuffer.byteLength,
+    );
+
+    let defaultLimitError = null;
+    await assert.rejects(
+      async () => parseZipLazyMedia(arrayBuffer, RECOMMENDED_ZIP_LIMITS),
+      (err) => {
+        defaultLimitError = err;
+        return (
+          err instanceof Error &&
+          err.message.includes('entries') &&
+          err.message.includes('maxEntries 4000')
+        );
+      },
+    );
+
+    const formattedDefaultErr = formatPptLoadError(defaultLimitError);
+    assert.match(formattedDefaultErr.message, /条目数过多/);
+    assert.match(formattedDefaultErr.message, /5105/);
+    assert.match(formattedDefaultErr.message, /4000/);
+
+    const parsedFiles = await parseZipLazyMedia(arrayBuffer, PPTX_ZIP_LIMITS);
+    assert.ok(parsedFiles.presentation.includes('p:presentation'));
+    assert.equal(parsedFiles.slides.get('ppt/slides/slide1.xml')?.includes('数字逻辑构件测试'), true);
+    assert.ok(parsedFiles.mediaResolver);
+    assert.equal(parsedFiles.mediaResolver.totalCount, 5101);
+
+    const resolvedImage = await parsedFiles.mediaResolver.resolve('../media/image1.png');
+    assert.equal(resolvedImage?.mediaPath, 'ppt/media/image1.png');
+    assert.deepEqual(resolvedImage?.data, pngPayload);
+  });
+
+  it('formatPptLoadError 正确格式化各类 zip limit exceeded 与常见压缩包损坏错误', async () => {
+    const { formatPptLoadError } = await import('../src/utils/pptConfig.ts');
+
+    const entriesErr = formatPptLoadError(
+      new Error('PPTX zip limit exceeded: entries 5097 > maxEntries 4000'),
+    );
+    assert.match(entriesErr.message, /5097/);
+    assert.match(entriesErr.message, /4000/);
+    assert.match(entriesErr.message, /条目数过多/);
+
+    const mediaErr = formatPptLoadError(
+      new Error('PPTX zip limit exceeded: media bytes 250000000 > maxMediaBytes 201326592'),
+    );
+    assert.match(mediaErr.message, /媒体资源体积过大/);
+    assert.match(mediaErr.message, /250000000/);
+    assert.match(mediaErr.message, /201326592/);
+
+    const totalErr = formatPptLoadError(
+      new Error(
+        'PPTX zip limit exceeded: total uncompressed bytes 300000000 > maxTotalUncompressedBytes 268435456',
+      ),
+    );
+    assert.match(totalErr.message, /解压后总体积过大/);
+    assert.match(totalErr.message, /300000000/);
+    assert.match(totalErr.message, /268435456/);
+
+    const entryErr = formatPptLoadError(
+      new Error(
+        'PPTX zip limit exceeded: ppt/media/video1.mp4 is 40000000 bytes > maxEntryUncompressedBytes 33554432',
+      ),
+    );
+    assert.match(entryErr.message, /ppt\/media\/video1\.mp4/);
+    assert.match(entryErr.message, /40000000/);
+    assert.match(entryErr.message, /33554432/);
+
+    const corruptErr = formatPptLoadError(
+      new Error("Corrupted zip: can't find end of central directory"),
+    );
+    assert.match(corruptErr.message, /格式无效或压缩包已损坏/);
+
+    const encryptedErr = formatPptLoadError(new Error('File is encrypted with password'));
+    assert.match(encryptedErr.message, /已加密或受密码保护/);
+
+    const emptyErr = formatPptLoadError(new Error('empty buffer (0 bytes)'));
+    assert.match(emptyErr.message, /内容为空/);
+  });
+});
+
+describe('fileMeta 兜底文件元信息推断与格式徽标测试', () => {
+  it('inferFallbackFileStat 与 formatKindBadge 正确覆盖全格式、Windows 反斜杠、大小写混合及未知/无后缀路径', async () => {
+    const { inferFallbackFileStat, formatKindBadge } = await import('../src/utils/fileMeta.ts');
+
+    const cases = [
+      { path: 'D:\\Courses\\05 数字逻辑构件 Digital Building Blocks.pptx', kind: 'ppt', ext: '.pptx', badge: 'PPTX' },
+      { path: 'C:\\legacy\\slides.PPT', kind: 'ppt', ext: '.ppt', badge: 'PPT' },
+      { path: '/docs/report.Docx', kind: 'word', ext: '.docx', badge: 'DOCX' },
+      { path: '/docs/legacy.doc', kind: 'word', ext: '.doc', badge: 'DOC' },
+      { path: 'C:\\sheets\\Budget.XLSX\\', kind: 'excel', ext: '.xlsx', badge: 'XLSX' },
+      { path: '/sheets/old.xls?t=123', kind: 'excel', ext: '.xls', badge: 'XLS' },
+      { path: '/sheets/data.CSV#sheet1', kind: 'excel', ext: '.csv', badge: 'CSV' },
+      { path: 'D:\\data\\table.TsV', kind: 'excel', ext: '.tsv', badge: 'TSV' },
+      { path: '/papers/manual.PDF', kind: 'pdf', ext: '.pdf', badge: 'PDF' },
+      { path: 'D:\\media\\demo.Mp4', kind: 'mp4', ext: '.mp4', badge: 'MP4' },
+      { path: '/web/index.HTML', kind: 'html', ext: '.html', badge: 'HTML' },
+      { path: '/web/page.htm', kind: 'html', ext: '.htm', badge: 'HTM' },
+      { path: 'D:\\notes\\readme.txt', kind: 'word', ext: '.txt', badge: 'DOCX' },
+      { path: 'D:\\notes\\Makefile', kind: 'word', ext: '', badge: 'DOCX' },
+      { path: '/repo/.gitignore', kind: 'word', ext: '', badge: 'DOCX' },
+    ];
+
+    for (const item of cases) {
+      const stat = inferFallbackFileStat(item.path);
+      assert.equal(stat.kind, item.kind, `path=${item.path} kind`);
+      assert.equal(stat.ext, item.ext, `path=${item.path} ext`);
+      assert.equal(stat.size, 0);
+      assert.equal(stat.mtimeMs, 0);
+      assert.equal(formatKindBadge(stat.kind, stat.ext), item.badge, `path=${item.path} badge`);
+    }
+
+    // 显式断言 .pptx 报错兜底绝不会回退成 word / DOCX
+    const pptxFallback = inferFallbackFileStat('E:\\课堂\\05 数字逻辑构件.PPTX');
+    assert.equal(pptxFallback.kind, 'ppt');
+    assert.equal(pptxFallback.ext, '.pptx');
+    assert.equal(pptxFallback.name, '05 数字逻辑构件.PPTX');
+    assert.equal(formatKindBadge(pptxFallback.kind, pptxFallback.ext), 'PPTX');
+    assert.notEqual(pptxFallback.kind, 'word');
+    assert.notEqual(formatKindBadge(pptxFallback.kind, pptxFallback.ext), 'DOCX');
+  });
+});
+
+describe('wheelPager 单页模式滚轮翻页控制测试', () => {
+  function createMockWheelEvent(overrides = {}) {
+    let prevented = false;
+    const event = {
+      deltaX: 0,
+      deltaY: 0,
+      deltaMode: 0,
+      ctrlKey: false,
+      metaKey: false,
+      defaultPrevented: false,
+      preventDefault() {
+        prevented = true;
+        event.defaultPrevented = true;
+      },
+      ...overrides,
+    };
+    return {
+      event,
+      isPrevented: () => prevented,
+    };
+  }
+
+  it('支持单页上下滚轮翻页、抑制触控板惯性连翻，并在放大可滚动时优先滚动内容', async () => {
+    const { createWheelPager } = await import('../src/utils/wheelPager.ts');
+
+    let enabled = true;
+    let currentPage = 2;
+    const totalPages = 5;
+    let nowMs = 1000;
+    const scrollBox = {
+      scrollTop: 0,
+      clientHeight: 500,
+      scrollHeight: 500,
+    };
+
+    const pager = createWheelPager({
+      getScrollContainer: () => scrollBox,
+      isEnabled: () => enabled,
+      getPageInfo: () => ({ currentPage, totalPages }),
+      onPrevPage: () => {
+        currentPage -= 1;
+      },
+      onNextPage: () => {
+        currentPage += 1;
+      },
+      now: () => nowMs,
+    });
+
+    // 1. 鼠标向下滚动 1 格 -> 立即翻到下一页
+    const downStep = createMockWheelEvent({ deltaY: 100 });
+    pager.handleWheel(downStep.event);
+    assert.equal(currentPage, 3);
+    assert.equal(downStep.isPrevented(), true);
+
+    // 2. 紧接着触控板高频惯性尾流（16ms 间隔、小幅衰减）-> 仅被抑制，不连翻
+    for (const delta of [24, 18, 12, 8, 4]) {
+      nowMs += 16;
+      const tail = createMockWheelEvent({ deltaY: delta });
+      pager.handleWheel(tail.event);
+      assert.equal(currentPage, 3);
+      assert.equal(tail.isPrevented(), true);
+    }
+
+    // 3. 停顿超过冷却期后再向上滚动 -> 翻回上一页
+    nowMs += 220;
+    const upStep = createMockWheelEvent({ deltaY: -100 });
+    pager.handleWheel(upStep.event);
+    assert.equal(currentPage, 2);
+    assert.equal(upStep.isPrevented(), true);
+
+    // 4. Ctrl+滚轮缩放手势与横向主导滚动不触发翻页
+    nowMs += 300;
+    const zoomWheel = createMockWheelEvent({ deltaY: -120, ctrlKey: true });
+    pager.handleWheel(zoomWheel.event);
+    assert.equal(currentPage, 2);
+    assert.equal(zoomWheel.isPrevented(), false);
+
+    const horizontalWheel = createMockWheelEvent({ deltaX: 120, deltaY: 10 });
+    pager.handleWheel(horizontalWheel.event);
+    assert.equal(currentPage, 2);
+    assert.equal(horizontalWheel.isPrevented(), false);
+
+    // 5. 放大溢出时：未滚动到底部前不翻页；到达底部后再向下滚才翻页
+    scrollBox.scrollHeight = 900;
+    scrollBox.scrollTop = 100;
+    nowMs += 300;
+    const midScroll = createMockWheelEvent({ deltaY: 120 });
+    pager.handleWheel(midScroll.event);
+    assert.equal(currentPage, 2);
+    assert.equal(midScroll.isPrevented(), false);
+
+    scrollBox.scrollTop = 400; // 400 + 500 >= 900，已到底部
+    nowMs += 300;
+    const bottomFlip = createMockWheelEvent({ deltaY: 120 });
+    pager.handleWheel(bottomFlip.event);
+    assert.equal(currentPage, 3);
+    assert.equal(bottomFlip.isPrevented(), true);
+
+    // 6. 滚动布局模式关闭时（isEnabled=false）不拦截
+    enabled = false;
+    nowMs += 300;
+    const listModeWheel = createMockWheelEvent({ deltaY: 120 });
+    pager.handleWheel(listModeWheel.event);
+    assert.equal(currentPage, 3);
+    assert.equal(listModeWheel.isPrevented(), false);
+
+    // 7. 第一页继续向上、最后一页继续向下均不拦截
+    enabled = true;
+    scrollBox.scrollHeight = 500;
+    scrollBox.scrollTop = 0;
+    currentPage = 1;
+    nowMs += 300;
+    const firstPageUp = createMockWheelEvent({ deltaY: -120 });
+    pager.handleWheel(firstPageUp.event);
+    assert.equal(currentPage, 1);
+    assert.equal(firstPageUp.isPrevented(), false);
+
+    currentPage = totalPages;
+    nowMs += 300;
+    const lastPageDown = createMockWheelEvent({ deltaY: 120 });
+    pager.handleWheel(lastPageDown.event);
+    assert.equal(currentPage, totalPages);
+    assert.equal(lastPageDown.isPrevented(), false);
+
+    pager.destroy();
+  });
+});
+
+describe('dragPanner 放大拖拽平移控制器测试', () => {
+  function createMockEventTarget() {
+    const listeners = new Map();
+    return {
+      addEventListener(type, fn) {
+        let set = listeners.get(type);
+        if (!set) {
+          set = new Set();
+          listeners.set(type, set);
+        }
+        set.add(fn);
+      },
+      removeEventListener(type, fn) {
+        listeners.get(type)?.delete(fn);
+      },
+      dispatch(type, event = {}) {
+        for (const fn of Array.from(listeners.get(type) ?? [])) {
+          fn(event);
+        }
+      },
+      listenerCount(type) {
+        return listeners.get(type)?.size ?? 0;
+      },
+    };
+  }
+
+  function createMockContainer({
+    clientWidth = 400,
+    clientHeight = 300,
+    rectLeft = 0,
+    rectTop = 0,
+    scrollLeft = 0,
+    scrollTop = 0,
+  } = {}) {
+    const classes = new Set();
+    return {
+      clientWidth,
+      clientHeight,
+      scrollLeft,
+      scrollTop,
+      classList: {
+        add(name) {
+          classes.add(name);
+        },
+        remove(name) {
+          classes.delete(name);
+        },
+        contains(name) {
+          return classes.has(name);
+        },
+      },
+      getBoundingClientRect() {
+        return {
+          left: rectLeft,
+          top: rectTop,
+          width: clientWidth,
+          height: clientHeight,
+          right: rectLeft + clientWidth,
+          bottom: rectTop + clientHeight,
+        };
+      },
+    };
+  }
+
+  function createMockMouseEvent(overrides = {}) {
+    let prevented = false;
+    let stopped = false;
+    const event = {
+      button: 0,
+      clientX: 0,
+      clientY: 0,
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      defaultPrevented: false,
+      target: null,
+      preventDefault() {
+        prevented = true;
+        event.defaultPrevented = true;
+      },
+      stopPropagation() {
+        stopped = true;
+      },
+      ...overrides,
+    };
+    return {
+      event,
+      isPrevented: () => prevented,
+      isStopped: () => stopped,
+    };
+  }
+
+  it('放大启用状态下按住左键或中键拖动超过阈值时按反向位移更新滚动并添加 is-panning', async () => {
+    const { createDragPanner } = await import('../src/utils/dragPanner.ts');
+
+    const eventTarget = createMockEventTarget();
+    const container = createMockContainer({ scrollLeft: 100, scrollTop: 80 });
+    const panner = createDragPanner({
+      getScrollContainer: () => container,
+      isEnabled: () => true,
+      dragThresholdPx: 3,
+      eventTarget,
+    });
+
+    panner.syncState();
+    assert.equal(container.classList.contains('is-pannable'), true);
+    assert.equal(container.classList.contains('is-panning'), false);
+
+    // 左键按下并在阈值内微移：尚未进入拖拽状态
+    const downLeft = createMockMouseEvent({ button: 0, clientX: 150, clientY: 120 });
+    panner.handleMouseDown(downLeft.event);
+    assert.equal(eventTarget.listenerCount('mousemove'), 1);
+    assert.equal(eventTarget.listenerCount('mouseup'), 1);
+    assert.equal(eventTarget.listenerCount('blur'), 1);
+
+    const smallMove = createMockMouseEvent({ clientX: 151, clientY: 121 });
+    eventTarget.dispatch('mousemove', smallMove.event);
+    assert.equal(panner.isPanning(), false);
+    assert.equal(container.classList.contains('is-panning'), false);
+    assert.equal(container.scrollLeft, 100);
+    assert.equal(container.scrollTop, 80);
+
+    // 移动超过阈值（dx=+40, dy=-25）：进入 is-panning 并反向更新 scrollLeft/scrollTop
+    const dragMove = createMockMouseEvent({ clientX: 190, clientY: 95 });
+    eventTarget.dispatch('mousemove', dragMove.event);
+    assert.equal(panner.isPanning(), true);
+    assert.equal(dragMove.isPrevented(), true);
+    assert.equal(container.classList.contains('is-panning'), true);
+    assert.equal(container.scrollLeft, 60);
+    assert.equal(container.scrollTop, 105);
+
+    eventTarget.dispatch('mouseup', createMockMouseEvent({ button: 0 }).event);
+    assert.equal(panner.isPanning(), false);
+    assert.equal(container.classList.contains('is-panning'), false);
+    assert.equal(eventTarget.listenerCount('mousemove'), 0);
+
+    // 中键按下会先阻止默认自动滚屏，拖动后同样正确更新滚动位置
+    const downMiddle = createMockMouseEvent({ button: 1, clientX: 200, clientY: 150 });
+    panner.handleMouseDown(downMiddle.event);
+    assert.equal(downMiddle.isPrevented(), true);
+
+    const middleMove = createMockMouseEvent({ clientX: 170, clientY: 180 });
+    eventTarget.dispatch('mousemove', middleMove.event);
+    assert.equal(panner.isPanning(), true);
+    assert.equal(container.classList.contains('is-panning'), true);
+    assert.equal(container.scrollLeft, 90);
+    assert.equal(container.scrollTop, 75);
+
+    eventTarget.dispatch('mouseup', createMockMouseEvent({ button: 1 }).event);
+    panner.destroy();
+  });
+
+  it('拖动释放后紧随其后的 click 被捕获抑制，而未超过阈值的普通点击不抑制 click', async () => {
+    const { createDragPanner } = await import('../src/utils/dragPanner.ts');
+
+    const eventTarget = createMockEventTarget();
+    const container = createMockContainer();
+    const panner = createDragPanner({
+      getScrollContainer: () => container,
+      isEnabled: () => true,
+      dragThresholdPx: 3,
+      eventTarget,
+    });
+
+    // 1. 超过阈值拖动并释放 -> 紧随其后的首个 click 应被抑制，第二次不再被抑制
+    panner.handleMouseDown(createMockMouseEvent({ button: 0, clientX: 50, clientY: 50 }).event);
+    eventTarget.dispatch('mousemove', createMockMouseEvent({ clientX: 65, clientY: 50 }).event);
+    assert.equal(panner.isPanning(), true);
+    eventTarget.dispatch('mouseup', createMockMouseEvent({ button: 0, clientX: 65, clientY: 50 }).event);
+
+    const suppressedClick = createMockMouseEvent({ button: 0, clientX: 65, clientY: 50 });
+    panner.handleClickCapture(suppressedClick.event);
+    assert.equal(suppressedClick.isPrevented(), true);
+    assert.equal(suppressedClick.isStopped(), true);
+
+    const subsequentClick = createMockMouseEvent({ button: 0, clientX: 65, clientY: 50 });
+    panner.handleClickCapture(subsequentClick.event);
+    assert.equal(subsequentClick.isPrevented(), false);
+    assert.equal(subsequentClick.isStopped(), false);
+
+    // 2. 未超过阈值的普通点击（微移 1px 后释放）-> 不应抑制 click
+    panner.handleMouseDown(createMockMouseEvent({ button: 0, clientX: 80, clientY: 80 }).event);
+    eventTarget.dispatch('mousemove', createMockMouseEvent({ clientX: 81, clientY: 81 }).event);
+    assert.equal(panner.isPanning(), false);
+    eventTarget.dispatch('mouseup', createMockMouseEvent({ button: 0, clientX: 81, clientY: 81 }).event);
+
+    const normalClick = createMockMouseEvent({ button: 0, clientX: 81, clientY: 81 });
+    panner.handleClickCapture(normalClick.event);
+    assert.equal(normalClick.isPrevented(), false);
+    assert.equal(normalClick.isStopped(), false);
+
+    panner.destroy();
+  });
+
+  it('未启用状态、点击交互元素或滚动条轨道位置时不触发拖拽', async () => {
+    const { createDragPanner } = await import('../src/utils/dragPanner.ts');
+
+    const eventTarget = createMockEventTarget();
+    const container = createMockContainer({
+      clientWidth: 400,
+      clientHeight: 300,
+      rectLeft: 10,
+      rectTop: 20,
+      scrollLeft: 50,
+      scrollTop: 50,
+    });
+    let enabled = false;
+    const panner = createDragPanner({
+      getScrollContainer: () => container,
+      isEnabled: () => enabled,
+      eventTarget,
+    });
+
+    // 1. 未启用状态不触发拖拽
+    panner.handleMouseDown(createMockMouseEvent({ button: 0, clientX: 100, clientY: 100 }).event);
+    eventTarget.dispatch('mousemove', createMockMouseEvent({ clientX: 150, clientY: 150 }).event);
+    assert.equal(panner.isPanning(), false);
+    assert.equal(eventTarget.listenerCount('mousemove'), 0);
+    assert.equal(container.scrollLeft, 50);
+
+    // 2. 启用后点击 BUTTON / INPUT / 按钮内子元素不触发拖拽
+    enabled = true;
+    const buttonTarget = { tagName: 'BUTTON', parentElement: container };
+    const inputTarget = { tagName: 'INPUT', parentElement: container };
+    const nestedIconTarget = { tagName: 'SPAN', parentElement: buttonTarget };
+
+    for (const target of [buttonTarget, inputTarget, nestedIconTarget]) {
+      panner.handleMouseDown(
+        createMockMouseEvent({ button: 0, clientX: 100, clientY: 100, target }).event,
+      );
+      assert.equal(eventTarget.listenerCount('mousemove'), 0);
+      eventTarget.dispatch('mousemove', createMockMouseEvent({ clientX: 160, clientY: 160 }).event);
+      assert.equal(panner.isPanning(), false);
+      assert.equal(container.scrollLeft, 50);
+    }
+
+    // 3. 点击在右侧竖向滚动条或底部横向滚动条轨道位置时不触发拖拽
+    // 右边界为 rectLeft(10) + clientWidth(400) = 410；底边界为 rectTop(20) + clientHeight(300) = 320
+    panner.handleMouseDown(createMockMouseEvent({ button: 0, clientX: 410, clientY: 100 }).event);
+    assert.equal(eventTarget.listenerCount('mousemove'), 0);
+    panner.handleMouseDown(createMockMouseEvent({ button: 0, clientX: 100, clientY: 320 }).event);
+    assert.equal(eventTarget.listenerCount('mousemove'), 0);
+
+    // 4. 修饰键（Ctrl）或右键（button=2）不触发拖拽
+    panner.handleMouseDown(
+      createMockMouseEvent({ button: 0, clientX: 100, clientY: 100, ctrlKey: true }).event,
+    );
+    panner.handleMouseDown(createMockMouseEvent({ button: 2, clientX: 100, clientY: 100 }).event);
+    assert.equal(eventTarget.listenerCount('mousemove'), 0);
+
+    panner.destroy();
+  });
+
+  it('syncState 与 destroy 能正确同步和清理 is-pannable / is-panning 类名并释放监听', async () => {
+    const { createDragPanner } = await import('../src/utils/dragPanner.ts');
+
+    const eventTarget = createMockEventTarget();
+    const containerA = createMockContainer({ scrollLeft: 30, scrollTop: 30 });
+    const containerB = createMockContainer({ scrollLeft: 0, scrollTop: 0 });
+    let activeContainer = containerA;
+    let enabled = false;
+
+    const panner = createDragPanner({
+      getScrollContainer: () => activeContainer,
+      isEnabled: () => enabled,
+      eventTarget,
+    });
+
+    // 初始禁用：无 is-pannable
+    panner.syncState();
+    assert.equal(containerA.classList.contains('is-pannable'), false);
+
+    // 启用后 syncState 添加 is-pannable
+    enabled = true;
+    panner.syncState();
+    assert.equal(containerA.classList.contains('is-pannable'), true);
+
+    // 切换容器时同步清理旧容器类名
+    activeContainer = containerB;
+    panner.syncState();
+    assert.equal(containerA.classList.contains('is-pannable'), false);
+    assert.equal(containerB.classList.contains('is-pannable'), true);
+
+    // 拖拽途中禁用并 syncState：应清理 is-pannable 与 is-panning 并解绑监听
+    panner.handleMouseDown(createMockMouseEvent({ button: 0, clientX: 40, clientY: 40 }).event);
+    eventTarget.dispatch('mousemove', createMockMouseEvent({ clientX: 60, clientY: 60 }).event);
+    assert.equal(panner.isPanning(), true);
+    assert.equal(containerB.classList.contains('is-panning'), true);
+    assert.equal(eventTarget.listenerCount('mousemove'), 1);
+
+    enabled = false;
+    panner.syncState();
+    assert.equal(panner.isPanning(), false);
+    assert.equal(containerB.classList.contains('is-pannable'), false);
+    assert.equal(containerB.classList.contains('is-panning'), false);
+    assert.equal(eventTarget.listenerCount('mousemove'), 0);
+    assert.equal(eventTarget.listenerCount('mouseup'), 0);
+    assert.equal(eventTarget.listenerCount('blur'), 0);
+
+    // 重新启用并再次进入拖拽后调用 destroy()：彻底清理类名、解绑监听且后续事件不生效
+    enabled = true;
+    panner.syncState();
+    assert.equal(containerB.classList.contains('is-pannable'), true);
+    panner.handleMouseDown(createMockMouseEvent({ button: 0, clientX: 40, clientY: 40 }).event);
+    eventTarget.dispatch('mousemove', createMockMouseEvent({ clientX: 70, clientY: 70 }).event);
+    assert.equal(panner.isPanning(), true);
+    assert.equal(containerB.classList.contains('is-panning'), true);
+
+    panner.destroy();
+    assert.equal(panner.isPanning(), false);
+    assert.equal(containerB.classList.contains('is-pannable'), false);
+    assert.equal(containerB.classList.contains('is-panning'), false);
+    assert.equal(eventTarget.listenerCount('mousemove'), 0);
+    assert.equal(eventTarget.listenerCount('mouseup'), 0);
+    assert.equal(eventTarget.listenerCount('blur'), 0);
+
+    // destroy 后再次 syncState / handleMouseDown 均不再挂载状态或监听
+    panner.syncState();
+    panner.handleMouseDown(createMockMouseEvent({ button: 0, clientX: 40, clientY: 40 }).event);
+    assert.equal(containerB.classList.contains('is-pannable'), false);
+    assert.equal(eventTarget.listenerCount('mousemove'), 0);
+  });
+
+  it('isPointOverText 准确区分交互控件/工具条/纯容器/远距吸附/字符矩形命中与子 Text 降级', async () => {
+    const { isPointOverText } = await import('../src/utils/dragPanner.ts');
+
+    const prevDocument = globalThis.document;
+    try {
+      // 辅助：创建带 rect 的 mock Text 节点与容器
+      const container = createMockContainer();
+      const children = new Set();
+      container.contains = (node) => {
+        let cur = node;
+        let guard = 0;
+        while (cur && guard < 32) {
+          if (cur === container || children.has(cur)) return true;
+          cur = cur.parentElement ?? cur.parentNode ?? null;
+          guard += 1;
+        }
+        return false;
+      };
+
+      const makeTextNode = (text, parentElement) => {
+        const node = { nodeType: 3, textContent: text, parentElement };
+        children.add(node);
+        return node;
+      };
+
+      const spanEl = { tagName: 'SPAN', parentElement: container, childNodes: [] };
+      const textNode = makeTextNode('Hello World', spanEl);
+      spanEl.childNodes = [textNode];
+      children.add(spanEl);
+
+      // 1. 纯容器、空输入、图片/画布直接返回 false
+      assert.equal(isPointOverText(null, 50, 50, container), false);
+      assert.equal(isPointOverText(container, 50, 50, container), false);
+      assert.equal(isPointOverText({ tagName: 'IMG', parentElement: container }, 50, 50, container), false);
+      assert.equal(isPointOverText({ tagName: 'CANVAS', parentElement: container }, 50, 50, container), false);
+      assert.equal(isPointOverText({ tagName: 'DIV', parentElement: container, childNodes: [] }, 50, 50, container), false);
+
+      // 2. 交互控件与排除 UI 区域（选区工具条/缩略图侧栏）即使含文本也返回 false
+      const btn = { tagName: 'BUTTON', parentElement: container };
+      const btnText = makeTextNode('发送', btn);
+      btn.childNodes = [btnText];
+      const link = { tagName: 'A', parentElement: container };
+      const linkText = makeTextNode('链接', link);
+      link.childNodes = [linkText];
+      const roleLink = {
+        tagName: 'SPAN',
+        parentElement: container,
+        getAttribute: (name) => (name === 'role' ? 'link' : null),
+      };
+      const editable = { tagName: 'DIV', isContentEditable: true, parentElement: container };
+      const selBar = { tagName: 'DIV', className: 'fp-selection-bar', parentElement: container };
+      const selBarChild = { tagName: 'SPAN', parentElement: selBar };
+      const pptThumbs = { tagName: 'ASIDE', className: 'fp-ppt-thumbs', parentElement: container };
+      const pptThumbChild = { tagName: 'SPAN', parentElement: pptThumbs };
+      const pdfThumbs = { tagName: 'ASIDE', className: 'fp-pdf-thumbs', parentElement: container };
+      const pdfThumbChild = { tagName: 'SPAN', parentElement: pdfThumbs };
+
+      for (const excluded of [
+        btn,
+        btnText,
+        link,
+        linkText,
+        roleLink,
+        editable,
+        selBarChild,
+        pptThumbChild,
+        pdfThumbChild,
+      ]) {
+        assert.equal(isPointOverText(excluded, 100, 100, container), false);
+      }
+
+      // 3. caretRangeFromPoint + 3px 字符矩形命中与远距吸附排除
+      const outsideTextNode = { nodeType: 3, textContent: '外部文本', parentElement: { tagName: 'P' } };
+      let caretResult = null;
+      const charRect = { left: 100, right: 120, top: 200, bottom: 218, width: 20, height: 18 };
+      const textRunRect = { left: 100, right: 180, top: 200, bottom: 218, width: 80, height: 18 };
+
+      globalThis.document = {
+        caretRangeFromPoint: () => caretResult,
+        createRange() {
+          let targetNode = null;
+          return {
+            setStart(node) {
+              targetNode = node;
+            },
+            setEnd() {},
+            selectNodeContents(node) {
+              targetNode = node;
+            },
+            getClientRects() {
+              if (targetNode === textNode) return [charRect];
+              return [];
+            },
+          };
+        },
+      };
+
+      // 命中字符矩形内部与 3px 容差边界
+      caretResult = { startContainer: textNode, startOffset: 2, getClientRects: () => [charRect] };
+      assert.equal(isPointOverText(spanEl, 110, 209, container), true);
+      assert.equal(isPointOverText(spanEl, 97, 197, container), true);
+      assert.equal(isPointOverText(spanEl, 123, 221, container), true);
+
+      // 远距吸附排除：caretRangeFromPoint 吸附到该文本，但指针在 4px 之外的空白处（124, 209）及降级矩形之外 -> 返回 false
+      assert.equal(isPointOverText(spanEl, 124, 209, container), false);
+      assert.equal(isPointOverText(spanEl, 110, 222, container), false);
+
+      // caretRangeFromPoint 命中容器外部节点时排除
+      caretResult = {
+        startContainer: outsideTextNode,
+        startOffset: 0,
+        getClientRects: () => [{ left: 0, right: 300, top: 0, bottom: 300, width: 300, height: 300 }],
+      };
+      assert.equal(isPointOverText({ tagName: 'DIV', parentElement: container, childNodes: [] }, 10, 10, container), false);
+
+      // 4. caretPositionFromPoint 兼容与子 Text 节点矩形降级（如 PDF 透明文本层 .fp-pdf-text-layer span）
+      const pdfTextLayer = { tagName: 'DIV', className: 'fp-pdf-text-layer', parentElement: container };
+      const pdfSpan = { tagName: 'SPAN', parentElement: pdfTextLayer, childNodes: [] };
+      const pdfText = makeTextNode('PDF 文字', pdfSpan);
+      pdfSpan.childNodes = [pdfText];
+      children.add(pdfTextLayer);
+      children.add(pdfSpan);
+
+      globalThis.document = {
+        caretPositionFromPoint: () => null,
+        createRange() {
+          let selected = null;
+          return {
+            setStart(node) {
+              selected = node;
+            },
+            setEnd() {},
+            selectNodeContents(node) {
+              selected = node;
+            },
+            getClientRects() {
+              if (selected === pdfText) return [textRunRect];
+              return [];
+            },
+          };
+        },
+      };
+
+      // 在 PDF span 的文本运行矩形内返回 true，空白处返回 false
+      assert.equal(isPointOverText(pdfSpan, 150, 210, container), true);
+      assert.equal(isPointOverText(pdfSpan, 250, 210, container), false);
+
+      // 5. 无 createRange 的轻量测试替身环境：直接子 Text 节点或 nodeType===3 回退命中
+      globalThis.document = {};
+      assert.equal(isPointOverText(spanEl, 10, 10, container), true);
+      assert.equal(isPointOverText(textNode, 10, 10, container), true);
+    } finally {
+      globalThis.document = prevDocument;
+    }
+  });
+
+  it('左键停文字放行划选、空白处自动拖拽、中键全区拖拽与 shouldPanTarget 生效', async () => {
+    const { createDragPanner } = await import('../src/utils/dragPanner.ts');
+
+    const prevDocument = globalThis.document;
+    try {
+      const eventTarget = createMockEventTarget();
+      const container = createMockContainer({ scrollLeft: 100, scrollTop: 100 });
+      const textTarget = {
+        tagName: 'P',
+        parentElement: container,
+        childNodes: [{ nodeType: 3, textContent: '可划选段落文本' }],
+      };
+      const blankTarget = {
+        tagName: 'DIV',
+        parentElement: container,
+        childNodes: [],
+      };
+      const noPanBlank = {
+        tagName: 'DIV',
+        className: 'custom-no-pan',
+        parentElement: container,
+        childNodes: [],
+      };
+
+      // 无 createRange 时，含直接 Text 子节点的 textTarget 命中文字，blankTarget 为空白区
+      globalThis.document = {};
+
+      const panner = createDragPanner({
+        getScrollContainer: () => container,
+        isEnabled: () => true,
+        shouldPanTarget: (target) => target !== noPanBlank,
+        dragThresholdPx: 3,
+        eventTarget,
+      });
+
+      // 1. 左键按在文字上：放行原生选字，不绑定全局拖拽监听，不改变滚动位置
+      const textDown = createMockMouseEvent({ button: 0, clientX: 60, clientY: 60, target: textTarget });
+      panner.handleMouseDown(textDown.event);
+      assert.equal(eventTarget.listenerCount('mousemove'), 0);
+      eventTarget.dispatch('mousemove', createMockMouseEvent({ clientX: 120, clientY: 120 }).event);
+      assert.equal(panner.isPanning(), false);
+      assert.equal(container.scrollLeft, 100);
+      assert.equal(container.scrollTop, 100);
+
+      // 2. shouldPanTarget 返回 false 的区域：左键同样放行不拖拽
+      panner.handleMouseDown(
+        createMockMouseEvent({ button: 0, clientX: 60, clientY: 60, target: noPanBlank }).event,
+      );
+      assert.equal(eventTarget.listenerCount('mousemove'), 0);
+
+      // 3. 左键按在空白处：自动触发拖拽平移
+      panner.handleMouseDown(
+        createMockMouseEvent({ button: 0, clientX: 100, clientY: 100, target: blankTarget }).event,
+      );
+      assert.equal(eventTarget.listenerCount('mousemove'), 1);
+      eventTarget.dispatch('mousemove', createMockMouseEvent({ clientX: 80, clientY: 70 }).event);
+      assert.equal(panner.isPanning(), true);
+      assert.equal(container.scrollLeft, 120);
+      assert.equal(container.scrollTop, 130);
+      eventTarget.dispatch('mouseup', createMockMouseEvent({ button: 0 }).event);
+      assert.equal(panner.isPanning(), false);
+
+      // 4. 中键即使按在文字节点上，仍保持任意区域拖拽平移
+      const middleDown = createMockMouseEvent({
+        button: 1,
+        clientX: 100,
+        clientY: 100,
+        target: textTarget,
+      });
+      panner.handleMouseDown(middleDown.event);
+      assert.equal(middleDown.isPrevented(), true);
+      assert.equal(eventTarget.listenerCount('mousemove'), 1);
+      eventTarget.dispatch('mousemove', createMockMouseEvent({ clientX: 110, clientY: 115 }).event);
+      assert.equal(panner.isPanning(), true);
+      assert.equal(container.scrollLeft, 110);
+      assert.equal(container.scrollTop, 115);
+      eventTarget.dispatch('mouseup', createMockMouseEvent({ button: 1 }).event);
+
+      panner.destroy();
+    } finally {
+      globalThis.document = prevDocument;
+    }
+  });
+
+  it('handleHoverMove（含划选期间不闪烁）、handleMouseLeave 与 reset/destroy 正确清理 is-over-text', async () => {
+    const { createDragPanner } = await import('../src/utils/dragPanner.ts');
+
+    const prevDocument = globalThis.document;
+    try {
+      globalThis.document = {};
+
+      const eventTarget = createMockEventTarget();
+      const container = createMockContainer();
+      const textTarget = {
+        tagName: 'SPAN',
+        parentElement: container,
+        childNodes: [{ nodeType: 3, textContent: '正文内容' }],
+      };
+      const blankTarget = {
+        tagName: 'DIV',
+        parentElement: container,
+        childNodes: [],
+      };
+
+      let enabled = true;
+      const panner = createDragPanner({
+        getScrollContainer: () => container,
+        isEnabled: () => enabled,
+        eventTarget,
+      });
+
+      panner.syncState();
+      assert.equal(container.classList.contains('is-pannable'), true);
+
+      // 悬停在文字上 -> 添加 is-over-text
+      panner.handleHoverMove(
+        createMockMouseEvent({ buttons: 0, clientX: 40, clientY: 40, target: textTarget }).event,
+      );
+      assert.equal(container.classList.contains('is-over-text'), true);
+
+      // 左键划选拖字期间（buttons=1）移过空白处 -> 保持当前类名不闪烁
+      panner.handleHoverMove(
+        createMockMouseEvent({ buttons: 1, clientX: 200, clientY: 200, target: blankTarget }).event,
+      );
+      assert.equal(container.classList.contains('is-over-text'), true);
+
+      // 松开左键后移回空白处 -> 移除 is-over-text
+      panner.handleHoverMove(
+        createMockMouseEvent({ buttons: 0, clientX: 200, clientY: 200, target: blankTarget }).event,
+      );
+      assert.equal(container.classList.contains('is-over-text'), false);
+
+      // 再次悬停文字后触发 handleMouseLeave -> 清理 is-over-text
+      panner.handleHoverMove(
+        createMockMouseEvent({ buttons: 0, clientX: 40, clientY: 40, target: textTarget }).event,
+      );
+      assert.equal(container.classList.contains('is-over-text'), true);
+      panner.handleMouseLeave();
+      assert.equal(container.classList.contains('is-over-text'), false);
+
+      // 悬停文字后调用 reset() -> 清理 is-over-text
+      panner.handleHoverMove(
+        createMockMouseEvent({ buttons: 0, clientX: 40, clientY: 40, target: textTarget }).event,
+      );
+      assert.equal(container.classList.contains('is-over-text'), true);
+      panner.reset();
+      assert.equal(container.classList.contains('is-over-text'), false);
+
+      // 禁用状态下调用 handleHoverMove -> 清理 is-over-text 与 is-pannable
+      panner.handleHoverMove(
+        createMockMouseEvent({ buttons: 0, clientX: 40, clientY: 40, target: textTarget }).event,
+      );
+      assert.equal(container.classList.contains('is-over-text'), true);
+      enabled = false;
+      panner.handleHoverMove(
+        createMockMouseEvent({ buttons: 0, clientX: 40, clientY: 40, target: textTarget }).event,
+      );
+      assert.equal(container.classList.contains('is-over-text'), false);
+      assert.equal(container.classList.contains('is-pannable'), false);
+
+      // 恢复启用悬停文字后调用 destroy() -> 彻底清理 is-over-text
+      enabled = true;
+      panner.syncState();
+      panner.handleHoverMove(
+        createMockMouseEvent({ buttons: 0, clientX: 40, clientY: 40, target: textTarget }).event,
+      );
+      assert.equal(container.classList.contains('is-over-text'), true);
+      panner.destroy();
+      assert.equal(container.classList.contains('is-over-text'), false);
+      assert.equal(container.classList.contains('is-pannable'), false);
+    } finally {
+      globalThis.document = prevDocument;
+    }
+  });
+});
+

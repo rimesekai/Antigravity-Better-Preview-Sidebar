@@ -5,6 +5,7 @@ import type {
   PreviewStateInfo,
 } from '../types/preview';
 import type { ThemePreference } from '../services/themeSync';
+import { formatKindBadge } from '../utils/fileMeta';
 
 const LARGE_PDF_THRESHOLD_BYTES = 20 * 1024 * 1024;
 
@@ -66,21 +67,6 @@ function stepZoom(current: number, direction: -1 | 1): number {
   const reversed = [...ZOOM_STEPS].reverse();
   const prev = reversed.find((step) => step < normalized - 0.02);
   return prev ?? clampZoom(normalized - 0.15);
-}
-
-function formatKindBadge(kind: PreviewKind, ext: string): string {
-  if (kind === 'ppt') return 'PPTX';
-  if (kind === 'word') return 'DOCX';
-  if (kind === 'excel') {
-    const normalized = ext.toLowerCase();
-    if (normalized === '.csv') return 'CSV';
-    if (normalized === '.tsv') return 'TSV';
-    if (normalized === '.xls') return 'XLS';
-    return 'XLSX';
-  }
-  if (kind === 'pdf') return 'PDF';
-  if (kind === 'mp4') return 'MP4';
-  return ext.toLowerCase() === '.htm' ? 'HTM' : 'HTML';
 }
 
 function createSvgIcon(pathD: string, viewBox = '0 0 16 16'): SVGSVGElement {
@@ -641,6 +627,8 @@ export function createToolbar(
       dropTag.hidden = !file.isLocalDrop;
     } else {
       fileBadge.hidden = true;
+      delete fileBadge.dataset.kind;
+      fileBadge.textContent = '';
       fileNameEl.textContent = '未选择文件';
       fileNameEl.title = '';
       largePdfBadge.hidden = true;

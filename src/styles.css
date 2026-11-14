@@ -932,6 +932,256 @@ body {
   color: var(--fp-muted-fg);
 }
 
+/* ==================== 工具栏图标适配 ==================== */
+.fp-btn svg {
+  flex: 0 0 auto;
+}
+
+/* ==================== 悬浮选区工具条 ==================== */
+.fp-selection-bar {
+  position: absolute;
+  z-index: 45;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 16px);
+  padding: 4px 5px;
+  border-radius: 999px;
+  background: var(--fp-card);
+  border: 1px solid var(--fp-border);
+  box-shadow: var(--fp-shadow);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  user-select: none;
+  animation: fp-sel-pop 0.14s ease-out;
+}
+
+.fp-sel-meta {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px 0 9px;
+  border-radius: 999px;
+  background: var(--fp-active-soft);
+  color: var(--fp-primary);
+  font-family: var(--fp-font);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+:root[data-theme="dark"] .fp-sel-meta,
+:root[data-theme-override="dark"] .fp-sel-meta {
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.2);
+}
+
+@keyframes fp-sel-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ==================== 已发送选区高亮追踪层 ==================== */
+.fp-sent-highlight-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 18;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.fp-sent-rect {
+  position: absolute;
+  border-radius: 3px;
+  background: rgba(26, 115, 232, 0.16);
+  border: 1.5px solid rgba(26, 115, 232, 0.68);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25) inset;
+  animation: fp-sent-rect-in 0.18s ease-out;
+}
+
+:root[data-theme="dark"] .fp-sent-rect,
+:root[data-theme-override="dark"] .fp-sent-rect {
+  background: rgba(59, 130, 246, 0.24);
+  border-color: rgba(96, 165, 250, 0.8);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.28) inset;
+}
+
+.fp-sent-badge {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 16px);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #15803d;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: var(--fp-shadow);
+  font-family: var(--fp-font);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: fp-sel-pop 0.16s ease-out;
+}
+
+:root[data-theme="dark"] .fp-sent-badge,
+:root[data-theme-override="dark"] .fp-sent-badge {
+  background: #16a34a;
+  color: #ffffff;
+  border-color: rgba(134, 239, 172, 0.45);
+}
+
+@keyframes fp-sent-rect-in {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fp-sel-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fp-fg);
+  font-family: var(--fp-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
+}
+
+.fp-sel-btn svg {
+  flex: 0 0 auto;
+}
+
+.fp-sel-btn:hover:not(:disabled) {
+  background: var(--fp-hover);
+}
+
+.fp-sel-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.fp-sel-btn-primary {
+  background: var(--fp-primary);
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.fp-sel-btn-primary:hover:not(:disabled) {
+  background: var(--fp-primary);
+  filter: brightness(1.08);
+}
+
+.fp-sel-btn-copy {
+  background: var(--fp-secondary);
+  border-color: var(--fp-border);
+  color: var(--fp-fg);
+}
+
+.fp-sel-btn-copy:hover:not(:disabled) {
+  background: var(--fp-hover);
+}
+
+.fp-sel-btn-copy.is-copied {
+  color: #15803d;
+  border-color: rgba(22, 163, 74, 0.35);
+  background: rgba(22, 163, 74, 0.12);
+}
+
+:root[data-theme="dark"] .fp-sel-btn-copy.is-copied,
+:root[data-theme-override="dark"] .fp-sel-btn-copy.is-copied {
+  color: #4ade80;
+  border-color: rgba(34, 197, 94, 0.4);
+  background: rgba(34, 197, 94, 0.16);
+}
+
+/* ==================== 预览舞台底部轻提示气泡 ==================== */
+.fp-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  z-index: 50;
+  max-width: min(380px, calc(100% - 24px));
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--fp-card);
+  color: var(--fp-fg);
+  border: 1px solid var(--fp-border);
+  box-shadow: var(--fp-shadow);
+  font-family: var(--fp-font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  animation: fp-toast-in 0.18s ease-out;
+  transition: opacity 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+}
+
+@keyframes fp-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.fp-toast.is-hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px);
+}
+
+.fp-toast.is-success {
+  border-color: rgba(22, 163, 74, 0.35);
+}
+
+.fp-toast.is-warn {
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.fp-toast.is-error {
+  border-color: rgba(239, 68, 68, 0.45);
+  color: var(--fp-error);
+}
+
+:root[data-theme="dark"] .fp-toast,
+:root[data-theme-override="dark"] .fp-toast {
+  background: var(--fp-secondary);
+}
+
 /* ==================== 窄侧边栏自适应 (380px ~ 500px) ==================== */
 @media (max-width: 480px) {
   .fp-hide-xs {

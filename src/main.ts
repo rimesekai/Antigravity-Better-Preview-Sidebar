@@ -31,8 +31,11 @@ import {
   startThemeSync,
   subscribeWorkspaceChanges,
 } from './services/themeSync';
+import { createSelectionToolbar } from './components/SelectionToolbar';
 import { createToolbar, type ToolbarFileMeta } from './components/Toolbar';
 import { createWorkspaceBrowser } from './components/WorkspaceBrowser';
+import { copyTextToClipboard } from './utils/clipboard';
+import { inferFallbackFileStat } from './utils/fileMeta';
 
 type ActiveSource =
   | { type: 'disk'; path: string; stat: FileStatInfo }
@@ -137,7 +140,13 @@ function bootstrap(): void {
   errorCardHost.className = 'fp-error-host';
   errorCardHost.hidden = true;
 
-  previewHost.append(rendererContainer, loadingOverlay, errorCardHost);
+  const toastEl = document.createElement('div');
+  toastEl.className = 'fp-toast';
+  toastEl.setAttribute('role', 'status');
+  toastEl.setAttribute('aria-live', 'polite');
+  toastEl.hidden = true;
+
+  previewHost.append(rendererContainer, loadingOverlay, errorCardHost, toastEl);
 
   // 文件列表抽屉
   const drawerBackdrop = document.createElement('div');
@@ -181,11 +190,42 @@ function bootstrap(): void {
   let autoRefreshEnabled = true;
   let isPollingStat = false;
   let loadRequestSeq = 0;
+  let toastTimer: number | null = null;
+
+  /** 在预览区底部展示轻提示，2.6 秒后自动隐藏。 */
+  function showToast(message: string, isError = false): void {
+    if (toastTimer !== null) {
+      window.clearTimeout(toastTimer);
+      toastTimer = null;
+    }
+    toastEl.textContent = message;
+    toastEl.classList.toggle('is-error', isError);
+    toastEl.hidden = false;
+    toastTimer = window.setTimeout(() => {
+      toastEl.hidden = true;
+      toastTimer = null;
+    }, 2600);
+  }
+
+  // 预览区划词悬浮提示条（展示已选字数与一键复制）
+  const selectionToolbar = createSelectionToolbar({
+    hostEl: previewHost,
+    getSelectionRoot: () => rendererContainer,
+    isActive: () => viewMode === 'preview' && !drawerOpen && !isLoading && !activeError,
+    onCopy: copyTextToClipboard,
+    onCopyFeedback: (ok) => {
+      showToast(ok ? '已复制选中文字到剪贴板' : '复制失败，请使用 Ctrl+C 手动复制', !ok);
+    },
+  });
 
   // 工具栏实例
   const toolbar = createToolbar(toolbarHost, {
     onToggleDrawer: () => {
       drawerOpen = !drawerOpen;
+      if (drawerOpen) {
+        selectionToolbar.hide();
+        selectionToolbar.clearSentMark();
+      }
       if (drawerOpen && workspaceFiles.length === 0 && !workspaceLoading) {
         void refreshWorkspaceList();
       }
@@ -242,6 +282,8 @@ function bootstrap(): void {
       activeRenderer?.prevMatch?.();
     },
     onHtmlModeChange: (mode: HtmlPreviewMode) => {
+      selectionToolbar.hide();
+      selectionToolbar.clearSentMark();
       activeRenderer?.setHtmlMode?.(mode);
     },
   });
@@ -323,6 +365,8 @@ function bootstrap(): void {
     backBtn.className = 'fp-btn fp-btn-primary';
     backBtn.textContent = '返回文件列表';
     backBtn.addEventListener('click', () => {
+      selectionToolbar.hide();
+      selectionToolbar.clearSentMark();
       destroyActiveRenderer();
       currentSource = null;
       activeError = null;
@@ -421,6 +465,8 @@ function bootstrap(): void {
   }
 
   function destroyActiveRenderer(): void {
+    selectionToolbar.hide();
+    selectionToolbar.clearSentMark();
     if (activeRenderer) {
       try {
         activeRenderer.destroy();
@@ -449,8 +495,23 @@ function bootstrap(): void {
 
     renderer.onStateChange?.((nextState) => {
       if (activeRenderer !== renderer) return;
+      const prevPage = previewState?.page;
+      const prevLayout = previewState?.layoutMode;
+      const prevHtmlMode = previewState?.htmlMode;
+      const prevZoom = previewState?.zoom;
       previewState = nextState;
       syncUi();
+      if (
+        prevPage !== nextState.page ||
+        prevLayout !== nextState.layoutMode ||
+        prevHtmlMode !== nextState.htmlMode ||
+        prevZoom !== nextState.zoom
+      ) {
+        selectionToolbar.hide();
+        selectionToolbar.clearSentMark();
+      } else {
+        selectionToolbar.refresh();
+      }
     });
 
     renderer.mount(rendererContainer);
@@ -465,10 +526,8 @@ function bootstrap(): void {
     if (!preserved || preserved.kind !== kind) return;
     if (kind === 'html' && preserved.htmlMode && preserved.htmlMode !== 'sandbox') {
       renderer.setHtmlMode?.(preserved.htmlMode);
-    } else if (kind === 'ppt') {
-      if (preserved.layoutMode) {
-        renderer.setLayoutMode?.(preserved.layoutMode);
-      }
+    } else if (kind === 'ppt' || kind === 'pdf') {
+      // 先恢复缩略图栏与缩放（会影响可视区宽度），再恢复目标页码与布局模式，避免布局切换覆盖页码
       if (preserved.thumbnailsVisible !== undefined) {
         renderer.toggleThumbnails?.(preserved.thumbnailsVisible);
       }
@@ -480,20 +539,8 @@ function bootstrap(): void {
       if (typeof preserved.page === 'number' && preserved.page > 1) {
         renderer.goToPage?.(preserved.page);
       }
-    } else if (kind === 'pdf') {
       if (preserved.layoutMode) {
         renderer.setLayoutMode?.(preserved.layoutMode);
-      }
-      if (preserved.thumbnailsVisible !== undefined) {
-        renderer.toggleThumbnails?.(preserved.thumbnailsVisible);
-      }
-      if (preserved.fitMode) {
-        renderer.setZoom?.('fit');
-      } else if (typeof preserved.zoom === 'number') {
-        renderer.setZoom?.(preserved.zoom);
-      }
-      if (typeof preserved.page === 'number' && preserved.page > 1) {
-        renderer.goToPage?.(preserved.page);
       }
     } else if (kind === 'word') {
       if (preserved.fitMode === false && typeof preserved.zoom === 'number') {
@@ -551,8 +598,13 @@ function bootstrap(): void {
       currentSource?.type === 'disk' &&
       (currentSource.path === rawPath || options.isRefresh || options.isAutoRefresh);
     const preserved = isSameDiskFile && previewState ? { ...previewState } : null;
+    // 在 try 之前暂存已确认的磁盘文件元信息，避免后续渲染出错时丢失真实格式与 mtimeMs
+    let resolvedStat: FileStatInfo | null =
+      isSameDiskFile && currentSource?.type === 'disk' ? currentSource.stat : null;
 
     if (!options.isAutoRefresh) {
+      selectionToolbar.hide();
+      selectionToolbar.clearSentMark();
       viewMode = 'preview';
       activeError = null;
       isLoading = true;
@@ -566,6 +618,7 @@ function bootstrap(): void {
     try {
       const stat = await statFile(rawPath);
       if (reqId !== loadRequestSeq) return;
+      resolvedStat = stat;
 
       const canReuseRenderer = Boolean(
         isSameDiskFile && activeRenderer && previewState?.kind === stat.kind,
@@ -644,6 +697,7 @@ function bootstrap(): void {
       activeError = null;
       isLoading = false;
       syncUi();
+      selectionToolbar.refresh();
     } catch (err) {
       if (reqId !== loadRequestSeq) return;
       if (options.isAutoRefresh) {
@@ -665,19 +719,17 @@ function bootstrap(): void {
         apiErr?.userMessage ||
         (err instanceof Error ? err.message : '加载或渲染文件时出现未知错误。');
 
+      const fallbackStat = inferFallbackFileStat(rawPath);
+      // 404 表示文件不存在，使用 mtimeMs: 0 的兜底信息停止轮询；其余错误优先保留真实 stat 以支持徽标展示与自动刷新恢复
+      const nextStat: FileStatInfo =
+        apiErr?.status === 404 ? fallbackStat : (resolvedStat ?? fallbackStat);
+
       currentSource = {
         type: 'disk',
-        path: rawPath,
-        stat: {
-          path: rawPath,
-          name: rawPath.split(/[\\/]/).pop() || rawPath,
-          ext: '',
-          kind: 'word',
-          size: 0,
-          mtimeMs: 0,
-        },
+        path: nextStat.path,
+        stat: nextStat,
       };
-      setErrorState(title, message, apiErr?.code, rawPath);
+      setErrorState(title, message, apiErr?.code, nextStat.path || rawPath);
     }
   }
 
@@ -685,6 +737,9 @@ function bootstrap(): void {
     const reqId = ++loadRequestSeq;
     const classified = classifyDroppedFile(file.name);
 
+    selectionToolbar.hide();
+    selectionToolbar.clearSentMark();
+    drawerOpen = false;
     viewMode = 'preview';
     toolbar.resetSearch();
 
@@ -841,8 +896,13 @@ function bootstrap(): void {
 
   window.addEventListener('beforeunload', () => {
     window.clearInterval(pollTimer);
+    if (toastTimer !== null) {
+      window.clearTimeout(toastTimer);
+      toastTimer = null;
+    }
     stopThemeSync();
     stopWorkspaceSync();
+    selectionToolbar.destroy();
     destroyActiveRenderer();
     toolbar.destroy();
     welcomeBrowser.destroy();

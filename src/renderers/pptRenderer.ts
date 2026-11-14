@@ -1,13 +1,30 @@
 import {
   PptxViewer,
-  RECOMMENDED_ZIP_LIMITS,
   type SlideHandle,
   type TextSearchResult,
 } from '@aiden0z/pptx-renderer/browser';
-import type { PptLayoutMode, PreviewRenderer, PreviewStateInfo } from '../types/preview';
+import type {
+  PptLayoutMode,
+  PreviewRenderer,
+  PreviewStateInfo,
+} from '../types/preview';
+import {
+  PPTX_EMBEDDED_FONT_LIMITS,
+  PPTX_ZIP_LIMITS,
+  formatPptLoadError,
+} from '../utils/pptConfig';
+import { createDragPanner, type DragPannerController } from '../utils/dragPanner';
+import { createWheelPager, type WheelPagerController } from '../utils/wheelPager';
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2.0;
+
+function isAbortError(err: unknown): boolean {
+  return (
+    (err instanceof DOMException && err.name === 'AbortError') ||
+    (err instanceof Error && err.name === 'AbortError')
+  );
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -39,6 +56,8 @@ export function createPptRenderer(): PreviewRenderer {
   let stageEl: HTMLElement | null = null;
 
   let viewer: PptxViewer | null = null;
+  let wheelPager: WheelPagerController | null = null;
+  let dragPanner: DragPannerController | null = null;
   let loadAbortController: AbortController | null = null;
   let thumbObserver: IntersectionObserver | null = null;
   const thumbHandles = new Map<number, SlideHandle>();
@@ -46,6 +65,9 @@ export function createPptRenderer(): PreviewRenderer {
 
   let destroyed = false;
   let loadGeneration = 0;
+  let layoutSwitchSeq = 0;
+  let zoomSwitchSeq = 0;
+  let suppressSlideChangeDepth = 0;
 
   let currentPage = 1;
   let totalPages = 0;
@@ -55,6 +77,7 @@ export function createPptRenderer(): PreviewRenderer {
   let thumbnailsVisible = false;
   let slideErrorCount = 0;
 
+  let searchQuery = '';
   let searchResults: TextSearchResult[] = [];
   let activeMatchIndex = -1;
 
@@ -87,6 +110,7 @@ export function createPptRenderer(): PreviewRenderer {
         console.error('[pptRenderer] state listener error:', err);
       }
     }
+    dragPanner?.syncState();
   }
 
   function disposeThumbnails(): void {
@@ -209,7 +233,7 @@ export function createPptRenderer(): PreviewRenderer {
     updateActiveThumbnail();
   }
 
-  async function highlightActiveMatch(): Promise<void> {
+  async function highlightActiveMatch(scroll = true): Promise<void> {
     if (destroyed || !viewer || !viewer.presentationData) return;
     viewer.clearSearchHighlights();
     const match = activeMatchIndex >= 0 ? searchResults[activeMatchIndex] : undefined;
@@ -222,12 +246,18 @@ export function createPptRenderer(): PreviewRenderer {
       borderWidth: 2,
       borderRadius: 4,
       padding: 3,
-      scrollIntoView: { behavior: 'smooth', block: 'center' },
+      scrollIntoView: scroll ? { behavior: 'smooth', block: 'center' } : false,
     });
 
-    if (!destroyed) {
+    if (!destroyed && scroll) {
       currentPage = match.slideIndex + 1;
       updateActiveThumbnail();
+    }
+  }
+
+  function syncLayoutModeClass(): void {
+    if (stageEl) {
+      stageEl.classList.toggle('is-slide-mode', layoutMode === 'slide');
     }
   }
 
@@ -238,6 +268,10 @@ export function createPptRenderer(): PreviewRenderer {
     updateActiveThumbnail();
     emitState();
     void viewer.goToSlide(clamped - 1, { behavior: 'smooth', block: 'center' });
+    if (layoutMode === 'slide' && scrollEl) {
+      scrollEl.scrollTop = 0;
+      scrollEl.scrollLeft = 0;
+    }
   }
 
   function nextPage(): void {
@@ -265,13 +299,22 @@ export function createPptRenderer(): PreviewRenderer {
     }
   }
 
-  async function openCurrentBuffer(): Promise<void> {
+  async function openCurrentBuffer(preserveViewState = false): Promise<void> {
     if (destroyed || !stageEl || !scrollEl || !lastBuffer) return;
     if (lastBuffer.byteLength === 0) {
-      throw new Error('PPTX 文件内容为空，无法渲染');
+      throw formatPptLoadError(new Error('PPTX 文件内容为空，无法渲染'));
     }
 
+    const savedPage = preserveViewState ? currentPage : 1;
+    const savedScrollTop = preserveViewState ? scrollEl.scrollTop : 0;
+    const savedScrollLeft = preserveViewState ? scrollEl.scrollLeft : 0;
+    const savedSearchQuery = preserveViewState ? searchQuery : '';
+    const savedActiveMatchIndex = preserveViewState ? activeMatchIndex : -1;
+
     const gen = ++loadGeneration;
+    layoutSwitchSeq++;
+    zoomSwitchSeq++;
+    suppressSlideChangeDepth = 0;
 
     if (loadAbortController) {
       loadAbortController.abort();
@@ -287,23 +330,30 @@ export function createPptRenderer(): PreviewRenderer {
     }
 
     stageEl.innerHTML = '';
+    syncLayoutModeClass();
+    wheelPager?.reset();
+    dragPanner?.reset();
     searchResults = [];
     activeMatchIndex = -1;
+    if (!preserveViewState) {
+      searchQuery = '';
+    }
     slideErrorCount = 0;
-    currentPage = 1;
+    currentPage = preserveViewState ? savedPage : 1;
     totalPages = 0;
 
     const instance = new PptxViewer(stageEl, {
       fitMode: 'contain',
       zoomPercent: Math.round(currentZoom * 100),
       scrollContainer: scrollEl,
-      zipLimits: RECOMMENDED_ZIP_LIMITS,
+      zipLimits: PPTX_ZIP_LIMITS,
+      embeddedFontLimits: PPTX_EMBEDDED_FONT_LIMITS,
       externalMedia: 'block',
       lazySlides: true,
       lazyMedia: true,
       pdfjs: false,
       onSlideChange: (index) => {
-        if (destroyed || gen !== loadGeneration) return;
+        if (destroyed || gen !== loadGeneration || suppressSlideChangeDepth > 0) return;
         currentPage = index + 1;
         updateActiveThumbnail();
         emitState();
@@ -317,38 +367,151 @@ export function createPptRenderer(): PreviewRenderer {
     });
     viewer = instance;
 
-    await instance.open(lastBuffer, {
-      renderMode: layoutMode,
-      listOptions: {
-        windowed: true,
-        initialSlides: 4,
-        batchSize: 6,
-        overscanViewport: 1.5,
-        showSlideLabels: true,
-      },
-      signal,
-      lazySlides: true,
-      lazyMedia: true,
-    });
+    // 防止 open 内部初始 renderSlide(0)/renderList() 触发的 slidechange 覆盖待恢复页码
+    suppressSlideChangeDepth++;
+    try {
+      await instance.open(lastBuffer, {
+        renderMode: layoutMode,
+        listOptions: {
+          windowed: true,
+          initialSlides: 4,
+          batchSize: 6,
+          overscanViewport: 1.5,
+          showSlideLabels: true,
+        },
+        signal,
+        lazySlides: true,
+        lazyMedia: true,
+      });
+    } catch (err) {
+      const aborted =
+        signal.aborted || destroyed || gen !== loadGeneration || isAbortError(err);
+
+      if (viewer === instance) {
+        viewer = null;
+      }
+      try {
+        instance.destroy();
+      } catch {
+        // 忽略清理失败
+      }
+
+      if (aborted) {
+        if (gen === loadGeneration) {
+          suppressSlideChangeDepth = Math.max(0, suppressSlideChangeDepth - 1);
+          if (loadAbortController?.signal === signal) {
+            loadAbortController = null;
+          }
+        }
+        return;
+      }
+
+      if (gen === loadGeneration) {
+        if (loadAbortController?.signal === signal) {
+          loadAbortController = null;
+        }
+        suppressSlideChangeDepth = 0;
+        totalPages = 0;
+        currentPage = 1;
+        searchResults = [];
+        activeMatchIndex = -1;
+        slideErrorCount = 0;
+        if (stageEl) {
+          stageEl.innerHTML = '';
+          syncLayoutModeClass();
+          wheelPager?.reset();
+          dragPanner?.reset();
+        }
+        emitState();
+      }
+      throw formatPptLoadError(err);
+    }
 
     if (destroyed || gen !== loadGeneration) {
-      instance.destroy();
+      if (viewer === instance) {
+        viewer = null;
+      }
+      try {
+        instance.destroy();
+      } catch {
+        // 忽略清理失败
+      }
       return;
     }
 
-    totalPages = instance.slideCount;
-    currentPage = totalPages > 0 ? instance.currentSlideIndex + 1 : 0;
+    try {
+      totalPages = instance.slideCount;
+      if (totalPages <= 0) {
+        currentPage = 0;
+      } else if (preserveViewState) {
+        currentPage = clamp(savedPage, 1, totalPages);
+      } else {
+        currentPage = instance.currentSlideIndex + 1;
+      }
 
-    if (scrollEl) {
-      scrollEl.scrollTop = 0;
-      scrollEl.scrollLeft = 0;
+      if (preserveViewState && totalPages > 0) {
+        if (layoutMode === 'slide') {
+          if (currentPage - 1 !== instance.currentSlideIndex) {
+            await instance.goToSlide(currentPage - 1, { behavior: 'instant', block: 'center' });
+          }
+          if (scrollEl) {
+            scrollEl.scrollTop = savedScrollTop;
+            scrollEl.scrollLeft = savedScrollLeft;
+          }
+        } else {
+          if (savedScrollTop > 0 || savedScrollLeft > 0) {
+            if (scrollEl) {
+              scrollEl.scrollTop = savedScrollTop;
+              scrollEl.scrollLeft = savedScrollLeft;
+            }
+          } else if (currentPage > 1) {
+            await instance.goToSlide(currentPage - 1, { behavior: 'instant', block: 'center' });
+          }
+        }
+
+        if (!destroyed && gen === loadGeneration && savedSearchQuery) {
+          searchQuery = savedSearchQuery;
+          searchResults = instance.searchText(savedSearchQuery, { matchCase: false });
+          if (searchResults.length > 0) {
+            activeMatchIndex =
+              savedActiveMatchIndex >= 0
+                ? clamp(savedActiveMatchIndex, 0, searchResults.length - 1)
+                : 0;
+            const match = searchResults[activeMatchIndex];
+            // 原地刷新恢复高亮时不跳转页码，也不破坏既有滚动位置
+            if (layoutMode === 'list' || (match && match.slideIndex === currentPage - 1)) {
+              await highlightActiveMatch(false);
+            }
+          }
+          if (scrollEl && layoutMode === 'list' && (savedScrollTop > 0 || savedScrollLeft > 0)) {
+            scrollEl.scrollTop = savedScrollTop;
+            scrollEl.scrollLeft = savedScrollLeft;
+          }
+        }
+      } else if (scrollEl) {
+        scrollEl.scrollTop = 0;
+        scrollEl.scrollLeft = 0;
+      }
+
+      if (destroyed || gen !== loadGeneration) {
+        return;
+      }
+
+      if (thumbnailsVisible) {
+        buildThumbnails();
+      } else {
+        updateActiveThumbnail();
+      }
+
+      emitState();
+    } finally {
+      if (gen === loadGeneration) {
+        suppressSlideChangeDepth = Math.max(0, suppressSlideChangeDepth - 1);
+        if (loadAbortController?.signal === signal) {
+          loadAbortController = null;
+        }
+      }
     }
-
-    if (thumbnailsVisible) {
-      buildThumbnails();
-    }
-
-    emitState();
   }
 
   return {
@@ -398,6 +561,37 @@ export function createPptRenderer(): PreviewRenderer {
 
       stageEl = document.createElement('div');
       stageEl.className = 'fp-ppt-stage';
+      syncLayoutModeClass();
+
+      wheelPager?.destroy();
+      wheelPager = createWheelPager({
+        getScrollContainer: () => scrollEl,
+        isEnabled: () => !destroyed && Boolean(viewer) && layoutMode === 'slide' && totalPages > 1,
+        getPageInfo: () => ({ currentPage, totalPages }),
+        onPrevPage: prevPage,
+        onNextPage: nextPage,
+      });
+      scrollEl.addEventListener('wheel', wheelPager.handleWheel, { passive: false });
+
+      // 挂载放大后鼠标拖拽平移控制器（悬停文字选字、空白处拖拽平移）
+      dragPanner?.destroy();
+      dragPanner = createDragPanner({
+        getScrollContainer: () => scrollEl,
+        isEnabled: () => {
+          if (destroyed || !viewer || fitMode) return false;
+          if (currentZoom > 1) return true;
+          const scrollContainer = scrollEl;
+          return (
+            scrollContainer !== null &&
+            (scrollContainer.scrollWidth > scrollContainer.clientWidth + 2 ||
+              scrollContainer.scrollHeight > scrollContainer.clientHeight + 2)
+          );
+        },
+      });
+      scrollEl.addEventListener('mousedown', dragPanner.handleMouseDown);
+      scrollEl.addEventListener('mousemove', dragPanner.handleHoverMove, { passive: true });
+      scrollEl.addEventListener('mouseleave', dragPanner.handleMouseLeave);
+      scrollEl.addEventListener('click', dragPanner.handleClickCapture, true);
 
       scrollEl.appendChild(stageEl);
       bodyEl.appendChild(thumbsPanelEl);
@@ -411,12 +605,18 @@ export function createPptRenderer(): PreviewRenderer {
     async loadBuffer(buffer: ArrayBuffer, meta: { name: string; path: string; ext: string }): Promise<void> {
       lastBuffer = buffer;
       lastMeta = meta;
-      await openCurrentBuffer();
+      await openCurrentBuffer(false);
+    },
+
+    async reloadBuffer(buffer: ArrayBuffer, meta: { name: string; path: string; ext: string }): Promise<void> {
+      lastBuffer = buffer;
+      lastMeta = meta;
+      await openCurrentBuffer(true);
     },
 
     async refresh(): Promise<void> {
       if (!lastBuffer || !lastMeta) return;
-      await openCurrentBuffer();
+      await openCurrentBuffer(true);
     },
 
     setZoom(zoom: number | 'fit'): void {
@@ -432,14 +632,44 @@ export function createPptRenderer(): PreviewRenderer {
 
       if (viewer && viewer.presentationData) {
         const targetPercent = Math.round(currentZoom * 100);
-        void viewer
-          .setFitMode('contain')
-          .then(() => viewer?.setZoom(targetPercent))
-          .then(() => {
-            if (!destroyed && activeMatchIndex >= 0) {
-              return highlightActiveMatch();
-            }
-          });
+        const needsUpdate =
+          viewer.fitMode !== 'contain' || Math.round(viewer.zoomPercent) !== targetPercent;
+        if (needsUpdate) {
+          const seq = ++zoomSwitchSeq;
+          const gen = loadGeneration;
+          const activeViewer = viewer;
+          suppressSlideChangeDepth++;
+          void activeViewer
+            .setFitMode('contain')
+            .then(() => activeViewer.setZoom(targetPercent))
+            .then(async () => {
+              if (
+                destroyed ||
+                gen !== loadGeneration ||
+                seq !== zoomSwitchSeq ||
+                viewer !== activeViewer ||
+                !activeViewer.presentationData
+              ) {
+                return;
+              }
+              if (layoutMode === 'list' && totalPages > 0) {
+                const latestIndex = clamp(currentPage - 1, 0, totalPages - 1);
+                await activeViewer.goToSlide(latestIndex, { behavior: 'instant', block: 'center' });
+              }
+              if (activeMatchIndex >= 0) {
+                const match = searchResults[activeMatchIndex];
+                if (layoutMode === 'list' || (match && match.slideIndex === currentPage - 1)) {
+                  await highlightActiveMatch(false);
+                }
+              }
+              dragPanner?.syncState();
+            })
+            .finally(() => {
+              if (gen === loadGeneration) {
+                suppressSlideChangeDepth = Math.max(0, suppressSlideChangeDepth - 1);
+              }
+            });
+        }
       }
       emitState();
     },
@@ -452,28 +682,61 @@ export function createPptRenderer(): PreviewRenderer {
       if (mode !== 'slide' && mode !== 'list') return;
       if (layoutMode === mode) return;
       layoutMode = mode;
+      syncLayoutModeClass();
+      wheelPager?.reset();
+      dragPanner?.reset();
+      if (mode === 'slide' && scrollEl) {
+        scrollEl.scrollTop = 0;
+        scrollEl.scrollLeft = 0;
+      }
 
       if (viewer && viewer.presentationData) {
-        const targetIndex = clamp(currentPage - 1, 0, Math.max(0, totalPages - 1));
-        viewer.clearSearchHighlights();
+        const seq = ++layoutSwitchSeq;
+        const gen = loadGeneration;
+        const activeViewer = viewer;
+        const initialTargetIndex = clamp(currentPage - 1, 0, Math.max(0, totalPages - 1));
+        activeViewer.clearSearchHighlights();
+        suppressSlideChangeDepth++;
         const switchTask =
           mode === 'slide'
-            ? viewer.renderSlide(targetIndex)
-            : viewer
-                .renderList({
-                  windowed: true,
-                  initialSlides: 4,
-                  batchSize: 6,
-                  overscanViewport: 1.5,
-                  showSlideLabels: true,
-                })
-                .then(() => viewer?.goToSlide(targetIndex, { behavior: 'instant', block: 'center' }));
+            ? activeViewer.renderSlide(initialTargetIndex)
+            : activeViewer.renderList({
+                windowed: true,
+                initialSlides: 4,
+                batchSize: 6,
+                overscanViewport: 1.5,
+                showSlideLabels: true,
+              });
 
-        void switchTask.then(() => {
-          if (!destroyed && activeMatchIndex >= 0) {
-            return highlightActiveMatch();
-          }
-        });
+        void switchTask
+          .then(async () => {
+            if (
+              destroyed ||
+              gen !== loadGeneration ||
+              seq !== layoutSwitchSeq ||
+              viewer !== activeViewer ||
+              !activeViewer.presentationData
+            ) {
+              return;
+            }
+            // 读取异步结束时最新的 currentPage，避免并发 goToPage 被旧闭包值覆盖
+            const latestIndex = clamp(currentPage - 1, 0, Math.max(0, totalPages - 1));
+            if (mode === 'list' || activeViewer.currentSlideIndex !== latestIndex) {
+              await activeViewer.goToSlide(latestIndex, { behavior: 'instant', block: 'center' });
+            }
+            if (activeMatchIndex >= 0) {
+              const match = searchResults[activeMatchIndex];
+              if (mode === 'list' || (match && match.slideIndex === currentPage - 1)) {
+                await highlightActiveMatch(false);
+              }
+            }
+            dragPanner?.syncState();
+          })
+          .finally(() => {
+            if (gen === loadGeneration) {
+              suppressSlideChangeDepth = Math.max(0, suppressSlideChangeDepth - 1);
+            }
+          });
       }
       emitState();
     },
@@ -497,6 +760,7 @@ export function createPptRenderer(): PreviewRenderer {
     },
 
     async search(query: string): Promise<{ total: number; current: number }> {
+      searchQuery = query.trim();
       if (!viewer || !viewer.presentationData) {
         searchResults = [];
         activeMatchIndex = -1;
@@ -505,15 +769,14 @@ export function createPptRenderer(): PreviewRenderer {
       }
 
       viewer.clearSearchHighlights();
-      const trimmed = query.trim();
-      if (!trimmed) {
+      if (!searchQuery) {
         searchResults = [];
         activeMatchIndex = -1;
         emitState();
         return { total: 0, current: 0 };
       }
 
-      searchResults = viewer.searchText(trimmed, { matchCase: false });
+      searchResults = viewer.searchText(searchQuery, { matchCase: false });
       if (searchResults.length === 0) {
         activeMatchIndex = -1;
         emitState();
@@ -521,7 +784,7 @@ export function createPptRenderer(): PreviewRenderer {
       }
 
       activeMatchIndex = 0;
-      await highlightActiveMatch();
+      await highlightActiveMatch(true);
       emitState();
       return { total: searchResults.length, current: 1 };
     },
@@ -529,7 +792,7 @@ export function createPptRenderer(): PreviewRenderer {
     nextMatch(): void {
       if (searchResults.length === 0) return;
       activeMatchIndex = (activeMatchIndex + 1) % searchResults.length;
-      void highlightActiveMatch().then(() => {
+      void highlightActiveMatch(true).then(() => {
         if (!destroyed) emitState();
       });
     },
@@ -537,7 +800,7 @@ export function createPptRenderer(): PreviewRenderer {
     prevMatch(): void {
       if (searchResults.length === 0) return;
       activeMatchIndex = (activeMatchIndex - 1 + searchResults.length) % searchResults.length;
-      void highlightActiveMatch().then(() => {
+      void highlightActiveMatch(true).then(() => {
         if (!destroyed) emitState();
       });
     },
@@ -549,8 +812,25 @@ export function createPptRenderer(): PreviewRenderer {
     destroy(): void {
       destroyed = true;
       loadGeneration++;
+      layoutSwitchSeq++;
+      zoomSwitchSeq++;
+      suppressSlideChangeDepth = 0;
 
       window.removeEventListener('keydown', handleKeyDown);
+      if (scrollEl && wheelPager) {
+        scrollEl.removeEventListener('wheel', wheelPager.handleWheel);
+      }
+      wheelPager?.destroy();
+      wheelPager = null;
+
+      if (scrollEl && dragPanner) {
+        scrollEl.removeEventListener('mousedown', dragPanner.handleMouseDown);
+        scrollEl.removeEventListener('mousemove', dragPanner.handleHoverMove);
+        scrollEl.removeEventListener('mouseleave', dragPanner.handleMouseLeave);
+        scrollEl.removeEventListener('click', dragPanner.handleClickCapture, true);
+      }
+      dragPanner?.destroy();
+      dragPanner = null;
 
       if (loadAbortController) {
         loadAbortController.abort();
@@ -575,6 +855,7 @@ export function createPptRenderer(): PreviewRenderer {
       stageEl = null;
       lastBuffer = null;
       lastMeta = null;
+      searchQuery = '';
       searchResults = [];
       activeMatchIndex = -1;
       totalPages = 0;

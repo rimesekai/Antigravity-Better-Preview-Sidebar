@@ -12,6 +12,8 @@ import type {
   PreviewRenderer,
   PreviewStateInfo,
 } from '../types/preview';
+import { createDragPanner, type DragPannerController } from '../utils/dragPanner';
+import { createWheelPager, type WheelPagerController } from '../utils/wheelPager';
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2.0;
@@ -107,6 +109,8 @@ export function createPdfRenderer(): PreviewRenderer {
 
   let loadingTask: PDFDocumentLoadingTask | null = null;
   let pdfDoc: PDFDocumentProxy | null = null;
+  let wheelPager: WheelPagerController | null = null;
+  let dragPanner: DragPannerController | null = null;
   let pageObserver: IntersectionObserver | null = null;
   let thumbObserver: IntersectionObserver | null = null;
   let resizeObserver: ResizeObserver | null = null;
@@ -167,6 +171,7 @@ export function createPdfRenderer(): PreviewRenderer {
         console.error('[pdfRenderer] state listener error:', err);
       }
     }
+    dragPanner?.syncState();
   }
 
   function cancelPageTasks(pageNum: number): void {
@@ -300,6 +305,7 @@ export function createPdfRenderer(): PreviewRenderer {
     if (fitMode) {
       currentZoom = computeFitScale(base1.width);
     }
+    dragPanner?.syncState();
   }
 
   function applyHighlightsToPage(pageNum: number): void {
@@ -679,10 +685,17 @@ export function createPdfRenderer(): PreviewRenderer {
     }
   }
 
+  function syncLayoutModeClass(): void {
+    if (stageEl) {
+      stageEl.classList.toggle('is-slide-mode', layoutMode === 'slide');
+    }
+  }
+
   function renderCanvasStage(): void {
     if (destroyed || !stageEl || !scrollEl || !pdfDoc) return;
 
     disposeStage();
+    syncLayoutModeClass();
     const gen = loadGeneration;
 
     if (thumbsPanelEl) {
@@ -754,6 +767,7 @@ export function createPdfRenderer(): PreviewRenderer {
     if (thumbnailsVisible) {
       buildThumbnails();
     }
+    dragPanner?.syncState();
   }
 
   async function openPdfWithFallback(
@@ -833,6 +847,8 @@ export function createPdfRenderer(): PreviewRenderer {
     activeWarning = undefined;
     currentPage = 1;
     totalPages = 0;
+    dragPanner?.reset();
+    dragPanner?.syncState();
 
     if (currentBuffer && currentBuffer.byteLength === 0) {
       throw new Error('PDF 文件为空（0 字节），无法渲染');
@@ -872,6 +888,10 @@ export function createPdfRenderer(): PreviewRenderer {
 
     if (layoutMode === 'slide') {
       renderCanvasStage();
+      if (scrollEl) {
+        scrollEl.scrollTop = 0;
+        scrollEl.scrollLeft = 0;
+      }
     } else {
       const slot = pageSlots.get(clamped);
       if (slot) {
@@ -927,6 +947,10 @@ export function createPdfRenderer(): PreviewRenderer {
 
     if (layoutMode === 'slide') {
       renderCanvasStage();
+      if (scrollEl) {
+        scrollEl.scrollTop = 0;
+        scrollEl.scrollLeft = 0;
+      }
     } else {
       const slot = pageSlots.get(match.page);
       if (slot) {
@@ -1022,6 +1046,42 @@ export function createPdfRenderer(): PreviewRenderer {
       stageEl = document.createElement('div');
       stageEl.className = 'fp-pdf-stage';
       stageEl.style.gap = `${PAGE_GAP_PX}px`;
+      syncLayoutModeClass();
+
+      wheelPager?.destroy();
+      wheelPager = createWheelPager({
+        getScrollContainer: () => scrollEl,
+        isEnabled: () => !destroyed && Boolean(pdfDoc) && layoutMode === 'slide' && totalPages > 1,
+        getPageInfo: () => ({ currentPage, totalPages }),
+        onPrevPage: prevPage,
+        onNextPage: nextPage,
+      });
+      scrollEl.addEventListener('wheel', wheelPager.handleWheel, { passive: false });
+
+      // 挂载放大后鼠标拖拽平移控制器（悬停文字选字、空白处拖拽平移）
+      dragPanner?.destroy();
+      dragPanner = createDragPanner({
+        getScrollContainer: () => scrollEl,
+        isEnabled: () => {
+          if (destroyed || !pdfDoc || fitMode) return false;
+          if (
+            currentZoom >
+            computeFitScale((pageSizeCache.get(currentPage) ?? defaultPageSize).width) + 0.01
+          ) {
+            return true;
+          }
+          const scrollContainer = scrollEl;
+          return (
+            scrollContainer !== null &&
+            (scrollContainer.scrollWidth > scrollContainer.clientWidth + 2 ||
+              scrollContainer.scrollHeight > scrollContainer.clientHeight + 2)
+          );
+        },
+      });
+      scrollEl.addEventListener('mousedown', dragPanner.handleMouseDown);
+      scrollEl.addEventListener('mousemove', dragPanner.handleHoverMove, { passive: true });
+      scrollEl.addEventListener('mouseleave', dragPanner.handleMouseLeave);
+      scrollEl.addEventListener('click', dragPanner.handleClickCapture, true);
 
       scrollEl.appendChild(stageEl);
       bodyEl.append(thumbsPanelEl, scrollEl);
@@ -1030,7 +1090,11 @@ export function createPdfRenderer(): PreviewRenderer {
 
       if (typeof ResizeObserver !== 'undefined') {
         resizeObserver = new ResizeObserver(() => {
-          if (destroyed || !fitMode || !pdfDoc) return;
+          if (destroyed || !pdfDoc) return;
+          if (!fitMode) {
+            dragPanner?.syncState();
+            return;
+          }
           if (resizeTimer !== null) {
             window.clearTimeout(resizeTimer);
           }
@@ -1044,6 +1108,7 @@ export function createPdfRenderer(): PreviewRenderer {
                 void renderPageSlot(slot, loadGeneration);
               }
             }
+            dragPanner?.syncState();
             emitState();
           }, 120);
         });
@@ -1090,6 +1155,7 @@ export function createPdfRenderer(): PreviewRenderer {
           }
         }
       }
+      dragPanner?.syncState();
       emitState();
     },
 
@@ -1101,11 +1167,17 @@ export function createPdfRenderer(): PreviewRenderer {
       if (mode !== 'slide' && mode !== 'list') return;
       if (layoutMode === mode) return;
       layoutMode = mode;
+      syncLayoutModeClass();
+      wheelPager?.reset();
+      dragPanner?.reset();
 
       if (pdfDoc) {
         const target = currentPage;
         renderCanvasStage();
-        if (mode === 'list' && target > 1) {
+        if (mode === 'slide' && scrollEl) {
+          scrollEl.scrollTop = 0;
+          scrollEl.scrollLeft = 0;
+        } else if (mode === 'list' && target > 1) {
           const slot = pageSlots.get(target);
           slot?.boxEl.scrollIntoView({ behavior: 'instant', block: 'start' });
         }
@@ -1203,6 +1275,20 @@ export function createPdfRenderer(): PreviewRenderer {
       loadGeneration++;
 
       window.removeEventListener('keydown', handleKeyDown);
+      if (scrollEl && wheelPager) {
+        scrollEl.removeEventListener('wheel', wheelPager.handleWheel);
+      }
+      wheelPager?.destroy();
+      wheelPager = null;
+
+      if (scrollEl && dragPanner) {
+        scrollEl.removeEventListener('mousedown', dragPanner.handleMouseDown);
+        scrollEl.removeEventListener('mousemove', dragPanner.handleHoverMove);
+        scrollEl.removeEventListener('mouseleave', dragPanner.handleMouseLeave);
+        scrollEl.removeEventListener('click', dragPanner.handleClickCapture, true);
+      }
+      dragPanner?.destroy();
+      dragPanner = null;
 
       if (resizeTimer !== null) {
         window.clearTimeout(resizeTimer);
