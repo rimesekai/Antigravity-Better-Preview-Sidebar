@@ -14,6 +14,7 @@ import {
   formatPptLoadError,
 } from '../utils/pptConfig';
 import { createDragPanner, type DragPannerController } from '../utils/dragPanner';
+import { onLocaleChange, tr } from '../utils/i18n';
 import { createWheelPager, type WheelPagerController } from '../utils/wheelPager';
 
 const MIN_ZOOM = 0.5;
@@ -83,13 +84,17 @@ export function createPptRenderer(): PreviewRenderer {
 
   let lastBuffer: ArrayBuffer | null = null;
   let lastMeta: { name: string; path: string; ext: string } | null = null;
+  let stopLocaleSync: (() => void) | null = null;
 
   const stateListeners = new Set<(info: PreviewStateInfo) => void>();
 
   function emitState(): void {
     const warning =
       slideErrorCount > 0
-        ? `部分幻灯片（${slideErrorCount} 页）渲染异常，已跳过异常元素`
+        ? tr(
+            `部分幻灯片（${slideErrorCount} 页）渲染异常，已跳过异常元素`,
+            `${slideErrorCount} slide(s) had rendering errors; broken elements were skipped`,
+          )
         : undefined;
     const info: PreviewStateInfo = {
       kind: 'ppt',
@@ -302,7 +307,9 @@ export function createPptRenderer(): PreviewRenderer {
   async function openCurrentBuffer(preserveViewState = false): Promise<void> {
     if (destroyed || !stageEl || !scrollEl || !lastBuffer) return;
     if (lastBuffer.byteLength === 0) {
-      throw formatPptLoadError(new Error('PPTX 文件内容为空，无法渲染'));
+      throw formatPptLoadError(
+        new Error(tr('PPTX 文件内容为空，无法渲染', 'PPTX file is empty and cannot be rendered.')),
+      );
     }
 
     const savedPage = preserveViewState ? currentPage : 1;
@@ -535,14 +542,24 @@ export function createPptRenderer(): PreviewRenderer {
       thumbsHeaderEl.className = 'fp-ppt-thumbs-header';
 
       const thumbsTitleEl = document.createElement('span');
-      thumbsTitleEl.textContent = '幻灯片缩略图';
-
       const thumbsCloseBtn = document.createElement('button');
       thumbsCloseBtn.type = 'button';
       thumbsCloseBtn.className = 'fp-ppt-thumbs-close';
-      thumbsCloseBtn.title = '收起缩略图';
-      thumbsCloseBtn.setAttribute('aria-label', '收起缩略图');
       thumbsCloseBtn.textContent = '×';
+      const applyPptLocale = () => {
+        thumbsTitleEl.textContent = tr('幻灯片缩略图', 'Slides');
+        const closeLabel = tr('收起缩略图', 'Collapse thumbnails');
+        thumbsCloseBtn.title = closeLabel;
+        thumbsCloseBtn.setAttribute('aria-label', closeLabel);
+      };
+      applyPptLocale();
+      stopLocaleSync?.();
+      stopLocaleSync = onLocaleChange(() => {
+        applyPptLocale();
+        if (slideErrorCount > 0) {
+          emitState();
+        }
+      });
       thumbsCloseBtn.addEventListener('click', () => {
         this.toggleThumbnails?.(false);
       });
@@ -831,6 +848,8 @@ export function createPptRenderer(): PreviewRenderer {
       }
       dragPanner?.destroy();
       dragPanner = null;
+      stopLocaleSync?.();
+      stopLocaleSync = null;
 
       if (loadAbortController) {
         loadAbortController.abort();

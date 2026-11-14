@@ -6,6 +6,14 @@ import type {
 } from '../types/preview';
 import type { ThemePreference } from '../services/themeSync';
 import { formatKindBadge } from '../utils/fileMeta';
+import {
+  type LocalePreference,
+  getCurrentLocale,
+  getLocalePreference,
+  getLocaleToggleDisplay,
+  onLocaleChange,
+  tr,
+} from '../utils/i18n';
 
 const LARGE_PDF_THRESHOLD_BYTES = 20 * 1024 * 1024;
 
@@ -27,6 +35,7 @@ export interface ToolbarRenderState {
   autoRefresh: boolean;
   drawerOpen: boolean;
   themePreference?: ThemePreference;
+  localePreference?: LocalePreference;
 }
 
 export interface ToolbarCallbacks {
@@ -34,6 +43,7 @@ export interface ToolbarCallbacks {
   onRefresh: () => void;
   onToggleAutoRefresh: () => void;
   onCycleTheme?: () => void;
+  onCycleLocale?: () => void;
   onZoomChange: (zoom: number | 'fit') => void;
   onPrevPage: () => void;
   onNextPage: () => void;
@@ -107,6 +117,7 @@ export function createToolbar(
     clusterEl: HTMLElement;
     inputEl: HTMLInputElement;
     setPlaceholder: (placeholder: string, ariaLabel: string) => void;
+    refreshLocale: () => void;
     updateMatches: (totalMatches: number, activeMatch: number) => void;
     reset: () => void;
   }
@@ -164,7 +175,7 @@ export function createToolbar(
     prevBtn.type = 'button';
     prevBtn.className = 'fp-btn fp-btn-icon';
     prevBtn.textContent = '↑';
-    prevBtn.title = '上一个匹配项';
+    prevBtn.title = tr('上一个匹配项', 'Previous match');
     prevBtn.hidden = true;
     prevBtn.addEventListener('click', () => callbacks.onPrevMatch());
 
@@ -172,7 +183,7 @@ export function createToolbar(
     nextBtn.type = 'button';
     nextBtn.className = 'fp-btn fp-btn-icon';
     nextBtn.textContent = '↓';
-    nextBtn.title = '下一个匹配项';
+    nextBtn.title = tr('下一个匹配项', 'Next match');
     nextBtn.hidden = true;
     nextBtn.addEventListener('click', () => callbacks.onNextMatch());
 
@@ -184,6 +195,10 @@ export function createToolbar(
       setPlaceholder(nextPlaceholder: string, nextAriaLabel: string): void {
         inputEl.placeholder = nextPlaceholder;
         inputEl.setAttribute('aria-label', nextAriaLabel);
+      },
+      refreshLocale(): void {
+        prevBtn.title = tr('上一个匹配项', 'Previous match');
+        nextBtn.title = tr('下一个匹配项', 'Next match');
       },
       updateMatches(totalMatches: number, activeMatch: number): void {
         const hasQuery = Boolean(lastQuery);
@@ -274,11 +289,14 @@ export function createToolbar(
   const themeBtn = document.createElement('button');
   themeBtn.type = 'button';
   themeBtn.className = 'fp-btn fp-btn-ghost';
-  themeBtn.title = '切换主题模式（跟随宿主 / 浅色 / 深色）';
-  themeBtn.textContent = '主题';
   themeBtn.addEventListener('click', () => callbacks.onCycleTheme?.());
 
-  rightGroup.append(themeBtn, refreshBtn, autoRefreshBtn);
+  const langBtn = document.createElement('button');
+  langBtn.type = 'button';
+  langBtn.className = 'fp-btn fp-btn-ghost';
+  langBtn.addEventListener('click', () => callbacks.onCycleLocale?.());
+
+  rightGroup.append(langBtn, themeBtn, refreshBtn, autoRefreshBtn);
   primaryRow.append(leftGroup, rightGroup);
 
   // 第二行：格式专属工具条
@@ -507,32 +525,32 @@ export function createToolbar(
     pptSearch.clusterEl.hidden = false;
 
     if (isExcel) {
-      prevPageBtn.title = '上一工作表';
-      nextPageBtn.title = '下一工作表';
-      pageInput.setAttribute('aria-label', '当前工作表序号');
-      pptFitBtn.title = '重置为标准视图';
-      pptSearch.setPlaceholder('搜索表格内容 (回车)', '搜索表格内容');
+      prevPageBtn.title = tr('上一工作表', 'Previous sheet');
+      nextPageBtn.title = tr('下一工作表', 'Next sheet');
+      pageInput.setAttribute('aria-label', tr('当前工作表序号', 'Current sheet index'));
+      pptFitBtn.title = tr('重置为标准视图', 'Reset to 100% view');
+      pptSearch.setPlaceholder(tr('搜索表格内容 (回车)', 'Search sheet (Enter)'), tr('搜索表格内容', 'Search sheet'));
     } else if (isPdf) {
-      prevPageBtn.title = '上一页';
-      nextPageBtn.title = '下一页';
-      pageInput.setAttribute('aria-label', '当前页码');
-      pptFitBtn.title = '自适应侧边栏宽度';
-      pptThumbBtn.title = '切换页面缩略图栏';
-      pptSearch.setPlaceholder('搜索 PDF 文本 (回车)', '搜索 PDF 文本');
+      prevPageBtn.title = tr('上一页', 'Previous page');
+      nextPageBtn.title = tr('下一页', 'Next page');
+      pageInput.setAttribute('aria-label', tr('当前页码', 'Current page'));
+      pptFitBtn.title = tr('自适应侧边栏宽度', 'Fit sidebar width');
+      pptThumbBtn.title = tr('切换页面缩略图栏', 'Toggle page thumbnails');
+      pptSearch.setPlaceholder(tr('搜索 PDF 文本 (回车)', 'Search PDF (Enter)'), tr('搜索 PDF 文本', 'Search PDF text'));
     } else {
-      prevPageBtn.title = '上一页';
-      nextPageBtn.title = '下一页';
-      pageInput.setAttribute('aria-label', '当前页码');
-      pptFitBtn.title = '自适应侧边栏宽度';
-      pptThumbBtn.title = '切换幻灯片缩略图栏';
-      pptSearch.setPlaceholder('搜索幻灯片 (回车)', '搜索幻灯片文本');
+      prevPageBtn.title = tr('上一页', 'Previous page');
+      nextPageBtn.title = tr('下一页', 'Next page');
+      pageInput.setAttribute('aria-label', tr('当前页码', 'Current page'));
+      pptFitBtn.title = tr('自适应侧边栏宽度', 'Fit sidebar width');
+      pptThumbBtn.title = tr('切换幻灯片缩略图栏', 'Toggle slide thumbnails');
+      pptSearch.setPlaceholder(tr('搜索幻灯片 (回车)', 'Search slides (Enter)'), tr('搜索幻灯片文本', 'Search slide text'));
     }
 
     const activeSheet = preview?.activeSheet?.trim();
     if (isExcel && activeSheet) {
       sheetNamePill.hidden = false;
       sheetNamePill.textContent = activeSheet;
-      sheetNamePill.title = `当前工作表：${activeSheet}`;
+      sheetNamePill.title = tr(`当前工作表：${activeSheet}`, `Active sheet: ${activeSheet}`);
     } else {
       sheetNamePill.hidden = true;
       sheetNamePill.textContent = '';
@@ -593,16 +611,55 @@ export function createToolbar(
       htmlStatusBanner.textContent = preview.warning;
     } else if (mode === 'sandbox') {
       htmlStatusBanner.classList.add('is-safe');
-      htmlStatusBanner.textContent = '安全沙箱：已禁止脚本执行';
+      htmlStatusBanner.textContent = tr('安全沙箱：已禁止脚本执行', 'Sandbox: scripts disabled');
     } else if (mode === 'interactive') {
       htmlStatusBanner.classList.add('is-interactive');
       htmlStatusBanner.textContent = file.isLocalDrop
-        ? '仅工作区路径文件支持完整交互脚本'
-        : '交互模式：跨源隔离执行页面脚本';
+        ? tr('仅工作区路径文件支持完整交互脚本', 'Full scripts require a workspace file path')
+        : tr('交互模式：跨源隔离执行页面脚本', 'Interactive: scripts run in isolated origin');
     } else {
-      htmlStatusBanner.textContent = '源码视图：只读文本展示';
+      htmlStatusBanner.textContent = tr('源码视图：只读文本展示', 'Source View: read-only HTML');
     }
   }
+
+  function applyStaticLocaleText(): void {
+    drawerBtn.title = tr('打开或切换工作区文件列表', 'Toggle workspace file list');
+    drawerBtnText.textContent = tr('文件', 'Files');
+    largePdfBadge.textContent = tr('>20MB 流式预览', '>20MB Streaming');
+    dropTag.textContent = tr('本地拖入', 'Local Drop');
+    refreshBtn.title = tr('立即重新加载当前文件', 'Reload current file');
+    refreshLabel.textContent = tr('刷新', 'Refresh');
+    autoText.textContent = tr('自动刷新', 'Auto Refresh');
+
+    pptSlideBtn.textContent = tr('单页', 'Slide');
+    pptListBtn.textContent = tr('滚动', 'Scroll');
+    pptThumbBtn.textContent = tr('缩略图', 'Thumbs');
+    pptFitBtn.textContent = tr('适应', 'Fit');
+    pptZoomOutBtn.title = tr('缩小', 'Zoom out');
+    pptZoomInBtn.title = tr('放大', 'Zoom in');
+    pptSearch.refreshLocale();
+
+    wordFitBtn.textContent = tr('自适应宽度', 'Fit Width');
+    wordZoomOutBtn.title = tr('缩小', 'Zoom out');
+    wordZoomInBtn.title = tr('放大', 'Zoom in');
+    wordSearch.setPlaceholder(
+      tr('搜索文档内容 (回车)', 'Search document (Enter)'),
+      tr('搜索 Word 文档内容', 'Search Word document'),
+    );
+    wordSearch.refreshLocale();
+
+    htmlSandboxBtn.textContent = tr('沙箱预览', 'Sandbox');
+    htmlInteractiveBtn.textContent = tr('交互模式', 'Interactive');
+    htmlSourceBtn.textContent = tr('源码', 'Source');
+  }
+
+  applyStaticLocaleText();
+  const stopLocaleSync = onLocaleChange(() => {
+    applyStaticLocaleText();
+    if (latestState.visible) {
+      update(latestState);
+    }
+  });
 
   function update(state: ToolbarRenderState): void {
     latestState = state;
@@ -611,6 +668,7 @@ export function createToolbar(
       return;
     }
 
+    applyStaticLocaleText();
     drawerBtn.classList.toggle('is-active', state.drawerOpen);
 
     const file = state.file;
@@ -619,7 +677,9 @@ export function createToolbar(
       fileBadge.dataset.kind = file.kind;
       fileBadge.textContent = formatKindBadge(file.kind, file.ext);
       fileNameEl.textContent = file.name;
-      fileNameEl.title = file.isLocalDrop ? `${file.name}（本地拖拽文件）` : file.path;
+      fileNameEl.title = file.isLocalDrop
+        ? tr(`${file.name}（本地拖拽文件）`, `${file.name} (Local dropped file)`)
+        : file.path;
       largePdfBadge.hidden = !(
         (file.kind === 'pdf' || file.kind === 'mp4') &&
         (file.size ?? 0) > LARGE_PDF_THRESHOLD_BYTES
@@ -629,7 +689,7 @@ export function createToolbar(
       fileBadge.hidden = true;
       delete fileBadge.dataset.kind;
       fileBadge.textContent = '';
-      fileNameEl.textContent = '未选择文件';
+      fileNameEl.textContent = tr('未选择文件', 'No file selected');
       fileNameEl.title = '';
       largePdfBadge.hidden = true;
       dropTag.hidden = true;
@@ -640,18 +700,27 @@ export function createToolbar(
     autoRefreshBtn.disabled = !isDiskFile;
     autoRefreshBtn.classList.toggle('is-active', isDiskFile && state.autoRefresh);
     autoRefreshBtn.title = isDiskFile
-      ? '每 2.5 秒检查一次磁盘修改时间并自动刷新'
-      : '拖拽的本地内存文件无磁盘路径，暂不支持自动监听刷新';
+      ? tr('每 2.5 秒检查一次磁盘修改时间并自动刷新', 'Check file changes every 2.5s and auto-reload')
+      : tr('拖拽的本地内存文件无磁盘路径，暂不支持自动监听刷新', 'Dropped local files have no disk path for auto-refresh');
+
+    const localePref = state.localePreference ?? getLocalePreference();
+    const langDisplay = getLocaleToggleDisplay(localePref, getCurrentLocale());
+    langBtn.textContent = langDisplay.label;
+    langBtn.title = langDisplay.title;
 
     const themePref = state.themePreference ?? 'auto';
     themeBtn.textContent =
-      themePref === 'light' ? '浅色' : themePref === 'dark' ? '深色' : '自动';
+      themePref === 'light'
+        ? tr('浅色', 'Light')
+        : themePref === 'dark'
+          ? tr('深色', 'Dark')
+          : tr('自动', 'Auto');
     themeBtn.title =
       themePref === 'light'
-        ? '当前：浅色模式（点击切换为深色）'
+        ? tr('当前：浅色模式（点击切换为深色）', 'Theme: Light (click for Dark)')
         : themePref === 'dark'
-          ? '当前：深色模式（点击切换为跟随宿主）'
-          : '当前：跟随宿主主题（点击切换为浅色）';
+          ? tr('当前：深色模式（点击切换为跟随宿主）', 'Theme: Dark (click for Auto)')
+          : tr('当前：跟随宿主主题（点击切换为浅色）', 'Theme: Auto (click for Light)');
 
     const showFormatRow = Boolean(file && !state.hasError && file.kind !== 'mp4');
     secondaryRow.hidden = !showFormatRow;
@@ -704,6 +773,7 @@ export function createToolbar(
   }
 
   function destroy(): void {
+    stopLocaleSync();
     window.removeEventListener('keydown', handleGlobalFindShortcut);
     root.remove();
   }

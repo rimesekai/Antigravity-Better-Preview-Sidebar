@@ -1,4 +1,12 @@
 import type { PreviewKind, WorkspaceFileItem } from '../types/preview';
+import {
+  cycleLocalePreference,
+  getCurrentLocale,
+  getLocalePreference,
+  getLocaleToggleDisplay,
+  onLocaleChange,
+  tr,
+} from '../utils/i18n';
 
 const LARGE_PDF_THRESHOLD_BYTES = 20 * 1024 * 1024;
 
@@ -35,9 +43,15 @@ function formatBytes(bytes: number): string {
 function formatModifiedTime(mtimeMs: number): string {
   if (!Number.isFinite(mtimeMs) || mtimeMs <= 0) return '';
   const diff = Date.now() - mtimeMs;
-  if (diff >= 0 && diff < 60_000) return '刚刚';
-  if (diff >= 0 && diff < 3600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
-  if (diff >= 0 && diff < 86400_000) return `${Math.floor(diff / 3600_000)} 小时前`;
+  if (diff >= 0 && diff < 60_000) return tr('刚刚', 'Just now');
+  if (diff >= 0 && diff < 3600_000) {
+    const mins = Math.floor(diff / 60_000);
+    return tr(`${mins} 分钟前`, `${mins}m ago`);
+  }
+  if (diff >= 0 && diff < 86400_000) {
+    const hours = Math.floor(diff / 3600_000);
+    return tr(`${hours} 小时前`, `${hours}h ago`);
+  }
 
   const date = new Date(mtimeMs);
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -103,22 +117,27 @@ export function createWorkspaceBrowser(
   heroTitle.textContent = 'File Preview';
   const heroSub = document.createElement('p');
   heroSub.className = 'fp-hero-subtitle';
-  heroSub.textContent = '侧边栏本地文档高保真预览 · 支持 .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html';
   heroTitleBox.append(heroTitle, heroSub);
 
   heroBrand.append(logoImg, heroTitleBox);
-  hero.appendChild(heroBrand);
+
+  const heroLangBtn = document.createElement('button');
+  heroLangBtn.type = 'button';
+  heroLangBtn.className = 'fp-btn fp-btn-ghost fp-hero-lang-btn';
+  heroLangBtn.addEventListener('click', () => {
+    cycleLocalePreference();
+  });
+
+  hero.append(heroBrand, heroLangBtn);
 
   // 抽屉模式标题栏（仅在 drawer 模式显示）
   const drawerHeader = document.createElement('div');
   drawerHeader.className = 'fp-drawer-header';
   const drawerTitle = document.createElement('h2');
   drawerTitle.className = 'fp-drawer-title';
-  drawerTitle.textContent = '切换工作区文档';
   const drawerCloseBtn = document.createElement('button');
   drawerCloseBtn.type = 'button';
   drawerCloseBtn.className = 'fp-btn fp-btn-ghost fp-btn-icon';
-  drawerCloseBtn.title = '关闭文件列表';
   drawerCloseBtn.textContent = '✕';
   drawerCloseBtn.addEventListener('click', () => callbacks.onCloseDrawer?.());
   drawerHeader.append(drawerTitle, drawerCloseBtn);
@@ -133,13 +152,10 @@ export function createWorkspaceBrowser(
   const pathInput = document.createElement('input');
   pathInput.type = 'text';
   pathInput.className = 'fp-input fp-path-input';
-  pathInput.placeholder = '输入本地文件路径或 file:// URI，回车打开...';
-  pathInput.setAttribute('aria-label', '输入本地文件路径');
 
   const pathSubmitBtn = document.createElement('button');
   pathSubmitBtn.type = 'submit';
   pathSubmitBtn.className = 'fp-btn fp-btn-primary';
-  pathSubmitBtn.textContent = '打开';
 
   pathForm.append(pathInput, pathSubmitBtn);
   pathForm.addEventListener('submit', (e) => {
@@ -170,12 +186,10 @@ export function createWorkspaceBrowser(
   const pickFileBtn = document.createElement('button');
   pickFileBtn.type = 'button';
   pickFileBtn.className = 'fp-btn fp-btn-secondary';
-  pickFileBtn.textContent = '选择电脑本地文件';
   pickFileBtn.addEventListener('click', () => hiddenFileInput.click());
 
   const dragTip = document.createElement('span');
   dragTip.className = 'fp-drag-tip';
-  dragTip.textContent = '或直接拖拽 .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html 到此窗口';
 
   localActionsRow.append(hiddenFileInput, pickFileBtn, dragTip);
   quickOpenCard.append(pathForm, localActionsRow);
@@ -190,27 +204,38 @@ export function createWorkspaceBrowser(
   const filterTabs = document.createElement('div');
   filterTabs.className = 'fp-filter-tabs';
 
-  const filterMeta: Array<{ key: BrowserKindFilter; label: string }> = [
-    { key: 'all', label: '全部' },
-    { key: 'ppt', label: 'PPT' },
-    { key: 'word', label: 'Word' },
-    { key: 'excel', label: 'Excel' },
-    { key: 'pdf', label: 'PDF' },
-    { key: 'mp4', label: 'MP4' },
-    { key: 'html', label: 'HTML' },
-  ];
+  const getFilterLabel = (key: BrowserKindFilter): string => {
+    switch (key) {
+      case 'all':
+        return tr('全部', 'All');
+      case 'ppt':
+        return 'PPT';
+      case 'word':
+        return 'Word';
+      case 'excel':
+        return 'Excel';
+      case 'pdf':
+        return 'PDF';
+      case 'mp4':
+        return 'MP4';
+      case 'html':
+        return 'HTML';
+    }
+  };
+
+  const filterKeys: BrowserKindFilter[] = ['all', 'ppt', 'word', 'excel', 'pdf', 'mp4', 'html'];
 
   const filterButtons = new Map<BrowserKindFilter, HTMLButtonElement>();
-  for (const item of filterMeta) {
+  for (const key of filterKeys) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'fp-filter-tab';
-    btn.textContent = item.label;
+    btn.textContent = getFilterLabel(key);
     btn.addEventListener('click', () => {
-      currentFilter = item.key;
+      currentFilter = key;
       renderFileList();
     });
-    filterButtons.set(item.key, btn);
+    filterButtons.set(key, btn);
     filterTabs.appendChild(btn);
   }
 
@@ -220,8 +245,6 @@ export function createWorkspaceBrowser(
   const filterSearchInput = document.createElement('input');
   filterSearchInput.type = 'search';
   filterSearchInput.className = 'fp-input fp-list-search';
-  filterSearchInput.placeholder = '按文件名或路径筛选...';
-  filterSearchInput.setAttribute('aria-label', '筛选工作区文件');
   filterSearchInput.addEventListener('input', () => {
     currentKeyword = filterSearchInput.value.trim().toLowerCase();
     renderFileList();
@@ -230,7 +253,6 @@ export function createWorkspaceBrowser(
   const refreshListBtn = document.createElement('button');
   refreshListBtn.type = 'button';
   refreshListBtn.className = 'fp-btn fp-btn-ghost';
-  refreshListBtn.textContent = '刷新列表';
   refreshListBtn.addEventListener('click', () => callbacks.onRefreshList());
 
   searchAndRefresh.append(filterSearchInput, refreshListBtn);
@@ -256,11 +278,11 @@ export function createWorkspaceBrowser(
     for (const file of latestState.files) {
       counts[file.kind] += 1;
     }
-    for (const item of filterMeta) {
-      const btn = filterButtons.get(item.key);
+    for (const key of filterKeys) {
+      const btn = filterButtons.get(key);
       if (!btn) continue;
-      btn.textContent = `${item.label} (${counts[item.key]})`;
-      btn.classList.toggle('is-active', currentFilter === item.key);
+      btn.textContent = `${getFilterLabel(key)} (${counts[key]})`;
+      btn.classList.toggle('is-active', currentFilter === key);
     }
   }
 
@@ -271,7 +293,7 @@ export function createWorkspaceBrowser(
     if (latestState.loading && latestState.files.length === 0) {
       const loadingEl = document.createElement('div');
       loadingEl.className = 'fp-list-empty';
-      loadingEl.textContent = '正在扫描工作区可预览文档...';
+      loadingEl.textContent = tr('正在扫描工作区可预览文档...', 'Scanning workspace for previewable files...');
       listBody.appendChild(loadingEl);
       return;
     }
@@ -301,9 +323,12 @@ export function createWorkspaceBrowser(
       const emptyEl = document.createElement('div');
       emptyEl.className = 'fp-list-empty';
       if (latestState.files.length === 0) {
-        emptyEl.textContent = '当前工作区暂未扫描到 .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html 文件，可使用上方路径输入或直接拖拽文件打开。';
+        emptyEl.textContent = tr(
+          '当前工作区暂未扫描到 .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html 文件，可使用上方路径输入或直接拖拽文件打开。',
+          'No .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html files found in the workspace. Paste a path above or drag & drop a file.',
+        );
       } else {
-        emptyEl.textContent = '没有符合当前筛选条件的文件。';
+        emptyEl.textContent = tr('没有符合当前筛选条件的文件。', 'No files match the current filter.');
       }
       listBody.appendChild(emptyEl);
       return;
@@ -339,7 +364,7 @@ export function createWorkspaceBrowser(
       if ((file.kind === 'pdf' || file.kind === 'mp4') && file.size > LARGE_PDF_THRESHOLD_BYTES) {
         const largeBadge = document.createElement('span');
         largeBadge.className = 'fp-large-pdf-badge';
-        largeBadge.textContent = '>20MB 流式可预览';
+        largeBadge.textContent = tr('>20MB 流式可预览', '>20MB Streaming');
         nameRow.appendChild(largeBadge);
       }
 
@@ -357,13 +382,48 @@ export function createWorkspaceBrowser(
     listBody.appendChild(fragment);
   }
 
+  function applyLocaleText(): void {
+    const langDisplay = getLocaleToggleDisplay(getLocalePreference(), getCurrentLocale());
+    heroLangBtn.textContent = langDisplay.label;
+    heroLangBtn.title = langDisplay.title;
+
+    heroSub.textContent = tr(
+      '侧边栏本地文档高保真预览 · 支持 .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html',
+      'High-fidelity sidebar preview · .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html',
+    );
+    drawerTitle.textContent = tr('切换工作区文档', 'Workspace Files');
+    drawerCloseBtn.title = tr('关闭文件列表', 'Close file list');
+    pathInput.placeholder = tr(
+      '输入本地文件路径或 file:// URI，回车打开...',
+      'Enter local file path or file:// URI and press Enter...',
+    );
+    pathInput.setAttribute('aria-label', tr('输入本地文件路径', 'Enter local file path'));
+    pathSubmitBtn.textContent = tr('打开', 'Open');
+    pickFileBtn.textContent = tr('选择电脑本地文件', 'Choose Local File');
+    dragTip.textContent = tr(
+      '或直接拖拽 .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html 到此窗口',
+      'or drag & drop .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html files here',
+    );
+    filterSearchInput.placeholder = tr('按文件名或路径筛选...', 'Filter by file name or path...');
+    filterSearchInput.setAttribute('aria-label', tr('筛选工作区文件', 'Filter workspace files'));
+    refreshListBtn.textContent = latestState.loading
+      ? tr('扫描中...', 'Scanning...')
+      : tr('刷新列表', 'Refresh');
+  }
+
+  applyLocaleText();
+  const stopLocaleSync = onLocaleChange(() => {
+    applyLocaleText();
+    renderFileList();
+  });
+
   function update(state: WorkspaceBrowserState): void {
     latestState = state;
     root.dataset.mode = state.mode;
     hero.hidden = state.mode !== 'welcome';
     drawerHeader.hidden = state.mode !== 'drawer';
     refreshListBtn.disabled = state.loading;
-    refreshListBtn.textContent = state.loading ? '扫描中...' : '刷新列表';
+    applyLocaleText();
     renderFileList();
   }
 
@@ -372,6 +432,7 @@ export function createWorkspaceBrowser(
   }
 
   function destroy(): void {
+    stopLocaleSync();
     root.remove();
   }
 

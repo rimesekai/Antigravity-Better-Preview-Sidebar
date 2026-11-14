@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import type { PreviewRenderer, PreviewStateInfo } from '../types/preview';
 import { copyTextToClipboard } from '../utils/clipboard';
+import { onLocaleChange, tr } from '../utils/i18n';
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2.0;
@@ -208,6 +209,7 @@ export function createExcelRenderer(): PreviewRenderer {
   let workbook: XLSX.WorkBook | null = null;
 
   let currentSheetIndex = 0;
+  let stopLocaleSync: (() => void) | null = null;
   let currentRowCount = 0;
   let currentColCount = 0;
   let fitMode = true;
@@ -261,7 +263,7 @@ export function createExcelRenderer(): PreviewRenderer {
     copyFeedbackText = '';
     if (copyBtnEl) {
       copyBtnEl.classList.remove('is-copied', 'is-copy-failed');
-      copyBtnEl.textContent = '复制';
+      copyBtnEl.textContent = tr('复制', 'Copy');
     }
   }
 
@@ -277,22 +279,25 @@ export function createExcelRenderer(): PreviewRenderer {
     const sheetNames = workbook?.SheetNames ?? [];
     if (sheetNames.length === 0) {
       cellRefEl.textContent = '—';
-      sheetStatsEl.textContent = '0 行 × 0 列';
-      formulaValueEl.textContent = '当前工作簿无可用工作表';
+      sheetStatsEl.textContent = tr('0 行 × 0 列', '0 rows × 0 cols');
+      formulaValueEl.textContent = tr('当前工作簿无可用工作表', 'No sheets available in workbook');
       formulaValueEl.classList.add('is-placeholder');
       copyBtnEl.disabled = true;
       copyFeedbackText = '';
       return;
     }
 
-    sheetStatsEl.textContent = `${currentRowCount.toLocaleString()} 行 × ${currentColCount} 列`;
+    sheetStatsEl.textContent = tr(
+      `${currentRowCount.toLocaleString()} 行 × ${currentColCount} 列`,
+      `${currentRowCount.toLocaleString()} rows × ${currentColCount} cols`,
+    );
 
     if (!selectedCell || selectedCell.sheetIndex !== currentSheetIndex) {
       cellRefEl.textContent = '—';
       formulaValueEl.textContent =
         currentRowCount === 0 && currentColCount === 0
-          ? '当前工作表暂无单元格数据'
-          : '点击单元格查看完整内容或公式';
+          ? tr('当前工作表暂无单元格数据', 'This sheet has no cell data')
+          : tr('点击单元格查看完整内容或公式', 'Click a cell to inspect its value or formula');
       formulaValueEl.classList.add('is-placeholder');
       copyBtnEl.disabled = true;
       copyFeedbackText = '';
@@ -306,7 +311,10 @@ export function createExcelRenderer(): PreviewRenderer {
     cellRefEl.textContent = selectedCell.displayRef;
 
     if (cell?.f) {
-      const fullText = `=${cell.f}  (值: ${displayValue})`;
+      const fullText = tr(
+        `=${cell.f}  (值: ${displayValue})`,
+        `=${cell.f}  (Value: ${displayValue})`,
+      );
       formulaValueEl.textContent = fullText;
       formulaValueEl.classList.remove('is-placeholder');
       copyFeedbackText = displayValue !== '' ? displayValue : `=${cell.f}`;
@@ -317,7 +325,7 @@ export function createExcelRenderer(): PreviewRenderer {
       copyFeedbackText = displayValue;
       copyBtnEl.disabled = false;
     } else {
-      formulaValueEl.textContent = '（空单元格）';
+      formulaValueEl.textContent = tr('（空单元格）', '(Empty cell)');
       formulaValueEl.classList.add('is-placeholder');
       copyFeedbackText = '';
       copyBtnEl.disabled = true;
@@ -496,14 +504,20 @@ export function createExcelRenderer(): PreviewRenderer {
     msgEl.className = 'fp-excel-truncation-text';
     const renderedParts: string[] = [];
     if (rowsTruncated) {
-      renderedParts.push(`前 ${renderRows.toLocaleString()} 行`);
+      renderedParts.push(tr(`前 ${renderRows.toLocaleString()} 行`, `first ${renderRows.toLocaleString()} rows`));
     }
     if (colsTruncated) {
-      renderedParts.push(`前 ${renderCols} 列`);
+      renderedParts.push(tr(`前 ${renderCols} 列`, `first ${renderCols} cols`));
     }
-    let msg = `当前工作表共 ${totalRows.toLocaleString()} 行 × ${totalCols} 列，已渲染${renderedParts.join('、')}`;
+    let msg = tr(
+      `当前工作表共 ${totalRows.toLocaleString()} 行 × ${totalCols} 列，已渲染${renderedParts.join('、')}`,
+      `Sheet has ${totalRows.toLocaleString()} rows × ${totalCols} cols; showing ${renderedParts.join(' and ')}`,
+    );
     if (hitHardCap) {
-      msg += `（已达安全渲染上限，可使用搜索精准定位）`;
+      msg += tr(
+        '（已达安全渲染上限，可使用搜索精准定位）',
+        ' (safe render cap reached; use search to jump directly)',
+      );
     }
     msgEl.textContent = msg;
     bannerEl.appendChild(msgEl);
@@ -520,8 +534,8 @@ export function createExcelRenderer(): PreviewRenderer {
         btn.className = 'fp-btn fp-btn-secondary fp-excel-load-all-btn';
         btn.textContent =
           nextRowLimit >= totalRows
-            ? `加载全部行 (+${deltaRows.toLocaleString()})`
-            : `再加载 ${deltaRows.toLocaleString()} 行`;
+            ? tr(`加载全部行 (+${deltaRows.toLocaleString()})`, `Load all rows (+${deltaRows.toLocaleString()})`)
+            : tr(`再加载 ${deltaRows.toLocaleString()} 行`, `Load ${deltaRows.toLocaleString()} more rows`);
         btn.addEventListener('click', () => {
           if (destroyed) return;
           expandedRowsLimitBySheet.set(sheetName, nextRowLimit);
@@ -538,7 +552,9 @@ export function createExcelRenderer(): PreviewRenderer {
         btn.type = 'button';
         btn.className = 'fp-btn fp-btn-secondary fp-excel-load-all-btn';
         btn.textContent =
-          nextColLimit >= totalCols ? `展开全部列 (+${deltaCols})` : `再加载 ${deltaCols} 列`;
+          nextColLimit >= totalCols
+            ? tr(`展开全部列 (+${deltaCols})`, `Expand all cols (+${deltaCols})`)
+            : tr(`再加载 ${deltaCols} 列`, `Load ${deltaCols} more cols`);
         btn.addEventListener('click', () => {
           if (destroyed) return;
           expandedColsLimitBySheet.set(sheetName, nextColLimit);
@@ -577,7 +593,7 @@ export function createExcelRenderer(): PreviewRenderer {
         bannerEl.hidden = true;
         bannerEl.innerHTML = '';
       }
-      renderEmptyState('工作簿为空', '当前文件不包含任何工作表');
+      renderEmptyState(tr('工作簿为空', 'Empty Workbook'), tr('当前文件不包含任何工作表', 'This file contains no sheets.'));
       renderSheetBar();
       updateFormulaBar();
       return;
@@ -598,7 +614,10 @@ export function createExcelRenderer(): PreviewRenderer {
         bannerEl.hidden = true;
         bannerEl.innerHTML = '';
       }
-      renderEmptyState('空工作表', `工作表「${sheetName}」暂无单元格数据`);
+      renderEmptyState(
+        tr('空工作表', 'Empty Sheet'),
+        tr(`工作表「${sheetName}」暂无单元格数据`, `Sheet "${sheetName}" has no cell data.`),
+      );
       updateFormulaBar();
       return;
     }
@@ -931,7 +950,7 @@ export function createExcelRenderer(): PreviewRenderer {
     if (destroyed || !copyBtnEl) return;
     copyBtnEl.classList.toggle('is-copied', ok);
     copyBtnEl.classList.toggle('is-copy-failed', !ok);
-    copyBtnEl.textContent = ok ? '已复制' : '复制失败';
+    copyBtnEl.textContent = ok ? tr('已复制', 'Copied') : tr('复制失败', 'Failed');
     if (copyFeedbackTimer !== null) {
       window.clearTimeout(copyFeedbackTimer);
     }
@@ -939,7 +958,7 @@ export function createExcelRenderer(): PreviewRenderer {
       copyFeedbackTimer = null;
       if (!copyBtnEl || destroyed) return;
       copyBtnEl.classList.remove('is-copied', 'is-copy-failed');
-      copyBtnEl.textContent = '复制';
+      copyBtnEl.textContent = tr('复制', 'Copy');
     }, 1500);
   }
 
@@ -1011,21 +1030,37 @@ export function createExcelRenderer(): PreviewRenderer {
 
       sheetStatsEl = document.createElement('span');
       sheetStatsEl.className = 'fp-excel-sheet-stats';
-      sheetStatsEl.textContent = '0 行 × 0 列';
+      sheetStatsEl.textContent = tr('0 行 × 0 列', '0 rows × 0 cols');
 
       formulaLeft.append(cellRefEl, sheetStatsEl);
 
       formulaValueEl = document.createElement('div');
       formulaValueEl.className = 'fp-excel-formula-value is-placeholder';
-      formulaValueEl.textContent = '点击单元格查看完整内容或公式';
+      formulaValueEl.textContent = tr(
+        '点击单元格查看完整内容或公式',
+        'Click a cell to inspect its value or formula',
+      );
 
       copyBtnEl = document.createElement('button');
       copyBtnEl.type = 'button';
       copyBtnEl.className = 'fp-btn fp-btn-ghost fp-excel-copy-btn';
-      copyBtnEl.textContent = '复制';
+      copyBtnEl.textContent = tr('复制', 'Copy');
       copyBtnEl.disabled = true;
       copyBtnEl.addEventListener('click', () => {
         void handleCopyClick();
+      });
+
+      stopLocaleSync?.();
+      stopLocaleSync = onLocaleChange(() => {
+        if (destroyed) return;
+        if (copyFeedbackTimer === null && copyBtnEl) {
+          copyBtnEl.textContent = tr('复制', 'Copy');
+        }
+        if (workbook) {
+          renderCurrentSheet(true);
+        } else {
+          updateFormulaBar();
+        }
       });
 
       formulaBarEl.append(formulaLeft, formulaValueEl, copyBtnEl);
@@ -1205,6 +1240,8 @@ export function createExcelRenderer(): PreviewRenderer {
 
     destroy(): void {
       destroyed = true;
+      stopLocaleSync?.();
+      stopLocaleSync = null;
       clearCopyFeedback();
       window.removeEventListener('keydown', handleKeyDown);
 

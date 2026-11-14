@@ -36,6 +36,13 @@ import { createToolbar, type ToolbarFileMeta } from './components/Toolbar';
 import { createWorkspaceBrowser } from './components/WorkspaceBrowser';
 import { copyTextToClipboard } from './utils/clipboard';
 import { inferFallbackFileStat } from './utils/fileMeta';
+import {
+  cycleLocalePreference,
+  getLocalePreference,
+  onLocaleChange,
+  syncDocumentLang,
+  tr,
+} from './utils/i18n';
 
 type ActiveSource =
   | { type: 'disk'; path: string; stat: FileStatInfo }
@@ -64,23 +71,32 @@ function classifyDroppedFile(fileName: string): {
     return {
       kind: null,
       ext,
-      errorTitle: '暂不支持旧版 .ppt 格式',
-      errorMessage: '请先在 PowerPoint 或 WPS 中将文件另存为 .pptx 格式后再拖入预览。',
+      errorTitle: tr('暂不支持旧版 .ppt 格式', 'Legacy .ppt format not supported'),
+      errorMessage: tr(
+        '请先在 PowerPoint 或 WPS 中将文件另存为 .pptx 格式后再拖入预览。',
+        'Please save this file as .pptx in PowerPoint or WPS before previewing.',
+      ),
     };
   }
   if (ext === '.doc') {
     return {
       kind: null,
       ext,
-      errorTitle: '暂不支持旧版 .doc 格式',
-      errorMessage: '请先在 Word 或 WPS 中将文件另存为 .docx 格式后再拖入预览。',
+      errorTitle: tr('暂不支持旧版 .doc 格式', 'Legacy .doc format not supported'),
+      errorMessage: tr(
+        '请先在 Word 或 WPS 中将文件另存为 .docx 格式后再拖入预览。',
+        'Please save this file as .docx in Word or WPS before previewing.',
+      ),
     };
   }
   return {
     kind: null,
     ext,
-    errorTitle: '不支持的文件格式',
-    errorMessage: `当前仅支持 .pptx、.docx、.xlsx、.xls、.csv、.tsv、.pdf、.mp4、.html 和 .htm 文件（收到：${ext || '无扩展名'}）。`,
+    errorTitle: tr('不支持的文件格式', 'Unsupported file format'),
+    errorMessage: tr(
+      `当前仅支持 .pptx、.docx、.xlsx、.xls、.csv、.tsv、.pdf、.mp4、.html 和 .htm 文件（收到：${ext || '无扩展名'}）。`,
+      `Only .pptx, .docx, .xlsx, .xls, .csv, .tsv, .pdf, .mp4, .html, and .htm files are supported (got: ${ext || 'no extension'}).`,
+    ),
   };
 }
 
@@ -102,6 +118,8 @@ function createRendererForKind(kind: PreviewKind): PreviewRenderer {
 }
 
 function bootstrap(): void {
+  syncDocumentLang();
+
   const appRoot = document.getElementById('app');
   if (!appRoot) {
     return;
@@ -132,8 +150,7 @@ function bootstrap(): void {
   const loadingOverlay = document.createElement('div');
   loadingOverlay.className = 'fp-loading-overlay';
   loadingOverlay.hidden = true;
-  loadingOverlay.innerHTML =
-    '<div class="fp-spinner" aria-hidden="true"></div><div class="fp-loading-text">正在加载并渲染文档...</div>';
+  loadingOverlay.innerHTML = `<div class="fp-spinner" aria-hidden="true"></div><div class="fp-loading-text">${tr('正在加载并渲染文档...', 'Loading and rendering document...')}</div>`;
   const loadingTextEl = loadingOverlay.querySelector('.fp-loading-text') as HTMLElement;
 
   const errorCardHost = document.createElement('div');
@@ -155,15 +172,31 @@ function bootstrap(): void {
 
   const drawerPanel = document.createElement('aside');
   drawerPanel.className = 'fp-drawer-panel';
-  drawerPanel.setAttribute('aria-label', '工作区文档列表');
+  drawerPanel.setAttribute('aria-label', tr('工作区文档列表', 'Workspace file list'));
   drawerPanel.hidden = true;
 
   // 全屏拖拽遮罩
   const dropOverlay = document.createElement('div');
   dropOverlay.className = 'fp-drop-overlay';
   dropOverlay.hidden = true;
-  dropOverlay.innerHTML =
-    '<div class="fp-drop-box"><div class="fp-drop-title">松开鼠标即可预览</div><div class="fp-drop-sub">支持 .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html / .htm 本地文件</div></div>';
+  const dropBox = document.createElement('div');
+  dropBox.className = 'fp-drop-box';
+  const dropTitleEl = document.createElement('div');
+  dropTitleEl.className = 'fp-drop-title';
+  const dropSubEl = document.createElement('div');
+  dropSubEl.className = 'fp-drop-sub';
+  dropBox.append(dropTitleEl, dropSubEl);
+  dropOverlay.appendChild(dropBox);
+
+  const applyStaticShellLocale = (): void => {
+    drawerPanel.setAttribute('aria-label', tr('工作区文档列表', 'Workspace file list'));
+    dropTitleEl.textContent = tr('松开鼠标即可预览', 'Drop file to preview');
+    dropSubEl.textContent = tr(
+      '支持 .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html / .htm 本地文件',
+      'Supports .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html / .htm files',
+    );
+  };
+  applyStaticShellLocale();
 
   // 错误页内使用的隐藏文件选择器
   const fallbackFileInput = document.createElement('input');
@@ -214,7 +247,12 @@ function bootstrap(): void {
     isActive: () => viewMode === 'preview' && !drawerOpen && !isLoading && !activeError,
     onCopy: copyTextToClipboard,
     onCopyFeedback: (ok) => {
-      showToast(ok ? '已复制选中文字到剪贴板' : '复制失败，请使用 Ctrl+C 手动复制', !ok);
+      showToast(
+        ok
+          ? tr('已复制选中文字到剪贴板', 'Copied selection to clipboard')
+          : tr('复制失败，请使用 Ctrl+C 手动复制', 'Copy failed. Press Ctrl+C to copy manually.'),
+        !ok,
+      );
     },
   });
 
@@ -246,6 +284,9 @@ function bootstrap(): void {
     onCycleTheme: () => {
       cycleThemePreference();
       syncUi();
+    },
+    onCycleLocale: () => {
+      cycleLocalePreference();
     },
     onZoomChange: (zoom) => {
       activeRenderer?.setZoom?.(zoom);
@@ -353,7 +394,7 @@ function bootstrap(): void {
     if (activeError.code) {
       const codeEl = document.createElement('div');
       codeEl.className = 'fp-error-code';
-      codeEl.textContent = `错误代码：${activeError.code}`;
+      codeEl.textContent = tr(`错误代码：${activeError.code}`, `Error code: ${activeError.code}`);
       card.appendChild(codeEl);
     }
 
@@ -363,7 +404,7 @@ function bootstrap(): void {
     const backBtn = document.createElement('button');
     backBtn.type = 'button';
     backBtn.className = 'fp-btn fp-btn-primary';
-    backBtn.textContent = '返回文件列表';
+    backBtn.textContent = tr('返回文件列表', 'Back to Files');
     backBtn.addEventListener('click', () => {
       selectionToolbar.hide();
       selectionToolbar.clearSentMark();
@@ -382,7 +423,7 @@ function bootstrap(): void {
       const retryBtn = document.createElement('button');
       retryBtn.type = 'button';
       retryBtn.className = 'fp-btn fp-btn-secondary';
-      retryBtn.textContent = '重试加载';
+      retryBtn.textContent = tr('重试加载', 'Retry');
       retryBtn.addEventListener('click', () => {
         void openDiskFile(retryPath);
       });
@@ -392,7 +433,7 @@ function bootstrap(): void {
     const pickBtn = document.createElement('button');
     pickBtn.type = 'button';
     pickBtn.className = 'fp-btn fp-btn-ghost';
-    pickBtn.textContent = '选择其他本地文件';
+    pickBtn.textContent = tr('选择其他本地文件', 'Choose Local File');
     pickBtn.addEventListener('click', () => fallbackFileInput.click());
     actions.appendChild(pickBtn);
 
@@ -461,6 +502,7 @@ function bootstrap(): void {
       autoRefresh: autoRefreshEnabled,
       drawerOpen: showDrawer,
       themePreference: getThemePreference(),
+      localePreference: getLocalePreference(),
     });
   }
 
@@ -582,7 +624,7 @@ function bootstrap(): void {
       workspaceError =
         err instanceof SidecarApiError
           ? err.userMessage
-          : '扫描工作区文件失败，请稍后重试。';
+          : tr('扫描工作区文件失败，请稍后重试。', 'Failed to scan workspace files. Please try again.');
     } finally {
       workspaceLoading = false;
       syncUi();
@@ -608,7 +650,9 @@ function bootstrap(): void {
       viewMode = 'preview';
       activeError = null;
       isLoading = true;
-      loadingTextEl.textContent = options.isRefresh ? '正在重新加载文档...' : '正在读取并渲染文档...';
+      loadingTextEl.textContent = options.isRefresh
+        ? tr('正在重新加载文档...', 'Reloading document...')
+        : tr('正在读取并渲染文档...', 'Reading and rendering document...');
       if (!isSameDiskFile) {
         toolbar.resetSearch();
       }
@@ -709,15 +753,17 @@ function bootstrap(): void {
       const apiErr = err instanceof SidecarApiError ? err : null;
       const title =
         apiErr?.status === 415
-          ? '暂不支持的文件格式'
+          ? tr('暂不支持的文件格式', 'Unsupported file format')
           : apiErr?.status === 404
-            ? '未找到目标文件'
+            ? tr('未找到目标文件', 'File not found')
             : apiErr?.status === 403
-              ? '无法访问该路径'
-              : '文档加载失败';
+              ? tr('无法访问该路径', 'Access denied')
+              : tr('文档加载失败', 'Failed to load document');
       const message =
         apiErr?.userMessage ||
-        (err instanceof Error ? err.message : '加载或渲染文件时出现未知错误。');
+        (err instanceof Error
+          ? err.message
+          : tr('加载或渲染文件时出现未知错误。', 'An unknown error occurred while loading or rendering the file.'));
 
       const fallbackStat = inferFallbackFileStat(rawPath);
       // 404 表示文件不存在，使用 mtimeMs: 0 的兜底信息停止轮询；其余错误优先保留真实 stat 以支持徽标展示与自动刷新恢复
@@ -746,8 +792,12 @@ function bootstrap(): void {
     if (!classified.kind) {
       currentSource = null;
       setErrorState(
-        classified.errorTitle || '不支持的文件格式',
-        classified.errorMessage || '仅支持 .pptx、.docx、.xlsx、.xls、.csv、.tsv、.pdf、.mp4、.html 和 .htm 文件。',
+        classified.errorTitle || tr('不支持的文件格式', 'Unsupported file format'),
+        classified.errorMessage ||
+          tr(
+            '仅支持 .pptx、.docx、.xlsx、.xls、.csv、.tsv、.pdf、.mp4、.html 和 .htm 文件。',
+            'Only .pptx, .docx, .xlsx, .xls, .csv, .tsv, .pdf, .mp4, .html, and .htm files are supported.',
+          ),
       );
       return;
     }
@@ -761,7 +811,10 @@ function bootstrap(): void {
     };
     activeError = null;
     isLoading = true;
-    loadingTextEl.textContent = `正在解析本地文件 ${file.name}...`;
+    loadingTextEl.textContent = tr(
+      `正在解析本地文件 ${file.name}...`,
+      `Parsing local file ${file.name}...`,
+    );
     syncUi();
 
     try {
@@ -813,8 +866,10 @@ function bootstrap(): void {
     } catch (err) {
       if (reqId !== loadRequestSeq) return;
       const message =
-        err instanceof Error ? err.message : '本地文件解析失败，请确认文件未损坏。';
-      setErrorState('本地文件渲染失败', message);
+        err instanceof Error
+          ? err.message
+          : tr('本地文件解析失败，请确认文件未损坏。', 'Failed to parse local file. Verify it is not corrupted.');
+      setErrorState(tr('本地文件渲染失败', 'Failed to render local file'), message);
     }
   }
 
@@ -888,8 +943,15 @@ function bootstrap(): void {
     }
   }, AUTO_REFRESH_INTERVAL_MS);
 
-  // 启动主题与工作区事件同步
+  // 启动主题、语言与工作区事件同步
   const stopThemeSync = startThemeSync();
+  const stopLocaleSync = onLocaleChange(() => {
+    applyStaticShellLocale();
+    if (isLoading) {
+      loadingTextEl.textContent = tr('正在加载并渲染文档...', 'Loading and rendering document...');
+    }
+    syncUi();
+  });
   const stopWorkspaceSync = subscribeWorkspaceChanges(() => {
     void refreshWorkspaceList();
   });
@@ -901,6 +963,7 @@ function bootstrap(): void {
       toastTimer = null;
     }
     stopThemeSync();
+    stopLocaleSync();
     stopWorkspaceSync();
     selectionToolbar.destroy();
     destroyActiveRenderer();

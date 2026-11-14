@@ -13,6 +13,7 @@ import type {
   PreviewStateInfo,
 } from '../types/preview';
 import { createDragPanner, type DragPannerController } from '../utils/dragPanner';
+import { onLocaleChange, tr } from '../utils/i18n';
 import { createWheelPager, type WheelPagerController } from '../utils/wheelPager';
 
 const MIN_ZOOM = 0.5;
@@ -85,18 +86,30 @@ function isNonWorkerFatalError(err: unknown): boolean {
 function formatPdfLoadError(err: unknown): Error {
   const name = err && typeof err === 'object' && 'name' in err ? String((err as { name: unknown }).name) : '';
   if (name === 'PasswordException') {
-    return new Error('此 PDF 文档受密码保护，暂不支持密码解锁预览。');
+    return new Error(
+      tr(
+        '此 PDF 文档受密码保护，暂不支持密码解锁预览。',
+        'This PDF document is password-protected and cannot be unlocked here.',
+      ),
+    );
   }
   if (name === 'InvalidPDFException') {
-    return new Error('PDF 文件格式无效或已损坏，无法解析。');
+    return new Error(
+      tr('PDF 文件格式无效或已损坏，无法解析。', 'Invalid or corrupted PDF file.'),
+    );
   }
   if (name === 'MissingPDFException') {
-    return new Error('未找到 PDF 文件内容，请确认文件未被移动或删除。');
+    return new Error(
+      tr(
+        '未找到 PDF 文件内容，请确认文件未被移动或删除。',
+        'PDF file content not found. Verify the file was not moved or deleted.',
+      ),
+    );
   }
   if (err instanceof Error) {
     return err;
   }
-  return new Error('PDF 加载或渲染失败。');
+  return new Error(tr('PDF 加载或渲染失败。', 'Failed to load or render PDF.'));
 }
 
 export function createPdfRenderer(): PreviewRenderer {
@@ -106,6 +119,7 @@ export function createPdfRenderer(): PreviewRenderer {
   let thumbsListEl: HTMLElement | null = null;
   let scrollEl: HTMLElement | null = null;
   let stageEl: HTMLElement | null = null;
+  let stopLocaleSync: (() => void) | null = null;
 
   let loadingTask: PDFDocumentLoadingTask | null = null;
   let pdfDoc: PDFDocumentProxy | null = null;
@@ -792,7 +806,7 @@ export function createPdfRenderer(): PreviewRenderer {
               isEvalSupported: false,
             }
           : (() => {
-              throw new Error('缺少 PDF 数据源或挂载 URL');
+              throw new Error(tr('缺少 PDF 数据源或挂载 URL', 'Missing PDF data source or mount URL.'));
             })();
 
       if (disableWorker) {
@@ -851,7 +865,7 @@ export function createPdfRenderer(): PreviewRenderer {
     dragPanner?.syncState();
 
     if (currentBuffer && currentBuffer.byteLength === 0) {
-      throw new Error('PDF 文件为空（0 字节），无法渲染');
+      throw new Error(tr('PDF 文件为空（0 字节），无法渲染', 'PDF file is empty (0 bytes) and cannot be rendered.'));
     }
 
     const doc = await openPdfWithFallback(currentMountInfo, currentBuffer);
@@ -1012,14 +1026,19 @@ export function createPdfRenderer(): PreviewRenderer {
       thumbsHeaderEl.className = 'fp-pdf-thumbs-header';
 
       const thumbsTitleEl = document.createElement('span');
-      thumbsTitleEl.textContent = '页面缩略图';
-
       const thumbsCloseBtn = document.createElement('button');
       thumbsCloseBtn.type = 'button';
       thumbsCloseBtn.className = 'fp-pdf-thumbs-close';
-      thumbsCloseBtn.title = '收起缩略图';
-      thumbsCloseBtn.setAttribute('aria-label', '收起缩略图');
       thumbsCloseBtn.textContent = '×';
+      const applyPdfLocale = () => {
+        thumbsTitleEl.textContent = tr('页面缩略图', 'Thumbnails');
+        const closeLabel = tr('收起缩略图', 'Collapse thumbnails');
+        thumbsCloseBtn.title = closeLabel;
+        thumbsCloseBtn.setAttribute('aria-label', closeLabel);
+      };
+      applyPdfLocale();
+      stopLocaleSync?.();
+      stopLocaleSync = onLocaleChange(applyPdfLocale);
       thumbsCloseBtn.addEventListener('click', () => {
         this.toggleThumbnails?.(false);
       });
@@ -1289,6 +1308,8 @@ export function createPdfRenderer(): PreviewRenderer {
       }
       dragPanner?.destroy();
       dragPanner = null;
+      stopLocaleSync?.();
+      stopLocaleSync = null;
 
       if (resizeTimer !== null) {
         window.clearTimeout(resizeTimer);

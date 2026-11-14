@@ -4,6 +4,7 @@ import {
   type PreviewStateInfo,
   type VideoMountInfo,
 } from '../types/preview';
+import { onLocaleChange, tr } from '../utils/i18n';
 
 function formatFileSize(bytes?: number): string {
   if (!bytes || !Number.isFinite(bytes) || bytes <= 0) return '';
@@ -37,6 +38,7 @@ export function createVideoRenderer(): PreviewRenderer {
   let currentSize: number | undefined;
   let playbackRate = 1;
   let loopEnabled = false;
+  let stopLocaleSync: (() => void) | null = null;
 
   const emitState = () => {
     stateCb?.({
@@ -59,16 +61,16 @@ export function createVideoRenderer(): PreviewRenderer {
       parts.push(`${videoEl.videoWidth} × ${videoEl.videoHeight}`);
     }
     if (videoEl && Number.isFinite(videoEl.duration) && videoEl.duration > 0) {
-      parts.push(`时长 ${formatDuration(videoEl.duration)}`);
+      parts.push(tr(`时长 ${formatDuration(videoEl.duration)}`, `Duration ${formatDuration(videoEl.duration)}`));
     }
     const sizeText = formatFileSize(currentSize);
     if (sizeText) {
-      parts.push(`体积 ${sizeText}`);
+      parts.push(tr(`体积 ${sizeText}`, `Size ${sizeText}`));
     }
     if (currentSize && currentSize > LARGE_PDF_THRESHOLD_BYTES) {
-      parts.push('HTTP Range 分片流式播放');
+      parts.push(tr('HTTP Range 分片流式播放', 'HTTP Range streaming'));
     }
-    metaGroupEl.textContent = parts.join('  ·  ') || '正在加载视频元数据...';
+    metaGroupEl.textContent = parts.join('  ·  ') || tr('正在加载视频元数据...', 'Loading video metadata...');
   };
 
   return {
@@ -87,11 +89,9 @@ export function createVideoRenderer(): PreviewRenderer {
       controlsGroup.className = 'fp-video-controls-group';
 
       const rateLabel = document.createElement('span');
-      rateLabel.textContent = '倍速';
 
       const rateSelect = document.createElement('select');
       rateSelect.className = 'fp-video-rate-select';
-      rateSelect.setAttribute('aria-label', '视频播放倍速');
       for (const rate of [0.5, 0.75, 1, 1.25, 1.5, 2]) {
         const opt = document.createElement('option');
         opt.value = String(rate);
@@ -112,7 +112,6 @@ export function createVideoRenderer(): PreviewRenderer {
       const loopBtn = document.createElement('button');
       loopBtn.type = 'button';
       loopBtn.className = 'fp-btn fp-btn-ghost';
-      loopBtn.textContent = '循环';
       loopBtn.addEventListener('click', () => {
         loopEnabled = !loopEnabled;
         loopBtn.classList.toggle('is-active', loopEnabled);
@@ -152,8 +151,22 @@ export function createVideoRenderer(): PreviewRenderer {
       errorEl = document.createElement('div');
       errorEl.className = 'fp-video-error';
       errorEl.hidden = true;
-      errorEl.textContent =
-        '视频无法播放：可能是编码格式不受当前内置浏览器支持（建议使用 H.264/AAC 编码的 MP4）。';
+
+      const applyVideoLocale = () => {
+        rateLabel.textContent = tr('倍速', 'Speed');
+        rateSelect.setAttribute('aria-label', tr('视频播放倍速', 'Playback speed'));
+        loopBtn.textContent = tr('循环', 'Loop');
+        if (errorEl) {
+          errorEl.textContent = tr(
+            '视频无法播放：可能是编码格式不受当前内置浏览器支持（建议使用 H.264/AAC 编码的 MP4）。',
+            'Unable to play video: codec may not be supported by the built-in webview (H.264/AAC MP4 recommended).',
+          );
+        }
+        updateMetaText();
+      };
+      applyVideoLocale();
+      stopLocaleSync?.();
+      stopLocaleSync = onLocaleChange(applyVideoLocale);
 
       stage.append(videoEl, errorEl);
       rootEl.append(infoBar, stage);
@@ -175,7 +188,7 @@ export function createVideoRenderer(): PreviewRenderer {
 
       const src = mountInfo?.url ?? objectUrl;
       if (!src) {
-        throw new Error('缺少可用的 MP4 视频流地址');
+        throw new Error(tr('缺少可用的 MP4 视频流地址', 'Missing available MP4 video stream URL.'));
       }
 
       if (errorEl) errorEl.hidden = true;
@@ -191,6 +204,8 @@ export function createVideoRenderer(): PreviewRenderer {
     },
 
     destroy() {
+      stopLocaleSync?.();
+      stopLocaleSync = null;
       if (videoEl) {
         videoEl.pause();
         videoEl.removeAttribute('src');

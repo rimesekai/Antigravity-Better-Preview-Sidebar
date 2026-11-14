@@ -5,6 +5,7 @@ import type {
   VideoMountInfo,
   WorkspaceFileItem,
 } from '../types/preview';
+import { tr, translateApiErrorMessage } from '../utils/i18n';
 
 interface SidecarBridgeLike {
   fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -110,21 +111,33 @@ async function sidecarFetch(url: string, init: RequestInit = {}): Promise<Respon
 function fallbackMessageByStatus(status: number): string {
   switch (status) {
     case 400:
-      return '请求参数无效，请检查文件路径是否正确。';
+      return tr('请求参数无效，请检查文件路径是否正确。', 'Invalid request parameters. Please check the file path.');
     case 401:
-      return '侧边栏访问令牌未授权，请尝试重新打开插件面板。';
+      return tr('侧边栏访问令牌未授权，请尝试重新打开插件面板。', 'Sidebar access token unauthorized. Please reopen the plugin panel.');
     case 403:
-      return '无权访问目标路径，请确认文件位于当前工作区或允许的本地目录内。';
+      return tr(
+        '无权访问目标路径，请确认文件位于当前工作区或允许的本地目录内。',
+        'Permission denied for this path. Ensure the file is inside your workspace or allowed directories.',
+      );
     case 404:
-      return '未找到目标文件，可能已被移动或删除。';
+      return tr('未找到目标文件，可能已被移动或删除。', 'Target file not found. It may have been moved or deleted.');
     case 413:
-      return '文件体积超过内存解析预览上限（常规文档上限 60MB），无法直接加载。';
+      return tr(
+        '文件体积超过内存解析预览上限（常规文档上限 60MB），无法直接加载。',
+        'File size exceeds the in-memory preview limit (60MB for parsed documents).',
+      );
     case 415:
-      return '暂不支持该文件格式，当前仅支持 .pptx、.docx、.xlsx、.xls、.csv、.tsv、.pdf、.mp4、.html 和 .htm。';
+      return tr(
+        '暂不支持该文件格式，当前仅支持 .pptx、.docx、.xlsx、.xls、.csv、.tsv、.pdf、.mp4、.html 和 .htm。',
+        'Unsupported file format. Only .pptx, .docx, .xlsx, .xls, .csv, .tsv, .pdf, .mp4, .html, and .htm are supported.',
+      );
     default:
       return status >= 500
-        ? `预览服务内部异常（HTTP ${status}），请稍后重试。`
-        : `请求失败（HTTP ${status}）。`;
+        ? tr(
+            `预览服务内部异常（HTTP ${status}），请稍后重试。`,
+            `Preview service internal error (HTTP ${status}). Please try again later.`,
+          )
+        : tr(`请求失败（HTTP ${status}）。`, `Request failed (HTTP ${status}).`);
   }
 }
 
@@ -156,7 +169,7 @@ async function parseErrorResponse(res: Response): Promise<SidecarApiError> {
             message = parsed.error.trim();
           }
         } catch {
-          // 非 JSON 错误正文时保留默认中文状态说明
+          // 非 JSON 错误正文时保留默认状态说明
         }
       }
     }
@@ -164,10 +177,11 @@ async function parseErrorResponse(res: Response): Promise<SidecarApiError> {
     // 忽略响应解析异常，使用状态码兜底说明
   }
 
+  const localized = translateApiErrorMessage(code, res.status, message);
   return new SidecarApiError(
     res.status,
     code,
-    message || fallbackMessageByStatus(res.status),
+    localized || fallbackMessageByStatus(res.status),
   );
 }
 
@@ -182,7 +196,14 @@ async function postJson<T>(endpoint: string, body: Record<string, unknown>): Pro
       body: JSON.stringify(body),
     });
   } catch {
-    throw new SidecarApiError(0, 'NETWORK_ERROR', '无法连接到 Sidecar 预览服务，请确认插件服务正常运行。');
+    throw new SidecarApiError(
+      0,
+      'NETWORK_ERROR',
+      tr(
+        '无法连接到 Sidecar 预览服务，请确认插件服务正常运行。',
+        'Cannot connect to the Sidecar preview service. Please ensure the plugin server is running.',
+      ),
+    );
   }
 
   if (!res.ok) {
@@ -192,7 +213,11 @@ async function postJson<T>(endpoint: string, body: Record<string, unknown>): Pro
   try {
     return (await res.json()) as T;
   } catch {
-    throw new SidecarApiError(res.status, 'INVALID_JSON', '服务端返回了无法解析的响应数据。');
+    throw new SidecarApiError(
+      res.status,
+      'INVALID_JSON',
+      tr('服务端返回了无法解析的响应数据。', 'The server returned an unparseable response.'),
+    );
   }
 }
 
@@ -219,7 +244,11 @@ export async function readFileBuffer(file: string): Promise<ArrayBuffer> {
       body: JSON.stringify({ file, workspaceUris }),
     });
   } catch {
-    throw new SidecarApiError(0, 'NETWORK_ERROR', '读取文件时网络中断，请检查 Sidecar 服务状态。');
+    throw new SidecarApiError(
+      0,
+      'NETWORK_ERROR',
+      tr('读取文件时网络中断，请检查 Sidecar 服务状态。', 'Network interrupted while reading the file. Please check the Sidecar service.'),
+    );
   }
 
   if (!res.ok) {

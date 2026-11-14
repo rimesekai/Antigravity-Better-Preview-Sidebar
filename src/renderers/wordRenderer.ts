@@ -4,6 +4,7 @@ import type {
   PreviewStateInfo,
 } from '../types/preview';
 import { createDragPanner, type DragPannerController } from '../utils/dragPanner';
+import { tr } from '../utils/i18n';
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2.0;
@@ -369,7 +370,7 @@ export function createWordRenderer(): PreviewRenderer {
   async function renderCurrentBuffer(preserveViewState = false): Promise<void> {
     if (destroyed || !stageEl || !lastBuffer) return;
     if (lastBuffer.byteLength === 0) {
-      throw new Error('Word 文档内容为空，无法渲染');
+      throw new Error(tr('Word 文档内容为空，无法渲染', 'Word document is empty and cannot be rendered.'));
     }
 
     const prevScrollTop = preserveViewState && viewportEl ? viewportEl.scrollTop : 0;

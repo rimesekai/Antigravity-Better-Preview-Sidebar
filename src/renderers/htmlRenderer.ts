@@ -5,9 +5,14 @@ import type {
   PreviewStateInfo,
 } from '../types/preview';
 import { copyTextToClipboard } from '../utils/clipboard';
+import { onLocaleChange, tr } from '../utils/i18n';
 
-const UNMOUNTED_INTERACTIVE_WARNING =
-  '拖拽无路径文件仅支持静态沙箱与源码视图，若需加载同目录资源请从工作区或路径打开';
+function getUnmountedInteractiveWarning(): string {
+  return tr(
+    '拖拽无路径文件仅支持静态沙箱与源码视图，若需加载同目录资源请从工作区或路径打开',
+    'Dropped files without a disk path support Sandbox and Source views only; open from workspace or path to load local assets.',
+  );
+}
 
 function buildBustUrl(rawUrl: string): string {
   try {
@@ -29,17 +34,22 @@ export function createHtmlRenderer(): PreviewRenderer {
   let currentSourceText = '';
   let currentMeta: { name: string; path: string; ext: string } | null = null;
   let htmlMode: HtmlPreviewMode = 'sandbox';
-  let activeWarning: string | undefined;
+  let hasUnmountedInteractiveWarning = false;
   let destroyed = false;
   let copyTimer: number | null = null;
+  let stopLocaleSync: (() => void) | null = null;
 
   const stateListeners = new Set<(info: PreviewStateInfo) => void>();
+
+  function getActiveWarning(): string | undefined {
+    return hasUnmountedInteractiveWarning ? getUnmountedInteractiveWarning() : undefined;
+  }
 
   function emitState(): void {
     const info: PreviewStateInfo = {
       kind: 'html',
       htmlMode,
-      warning: activeWarning,
+      warning: getActiveWarning(),
     };
     for (const cb of stateListeners) {
       try {
@@ -52,8 +62,9 @@ export function createHtmlRenderer(): PreviewRenderer {
 
   function updateWarningBanner(): void {
     if (!warningEl) return;
-    if (activeWarning) {
-      warningEl.textContent = activeWarning;
+    const warning = getActiveWarning();
+    if (warning) {
+      warningEl.textContent = warning;
       warningEl.hidden = false;
     } else {
       warningEl.textContent = '';
@@ -70,7 +81,9 @@ export function createHtmlRenderer(): PreviewRenderer {
 
     const iframe = document.createElement('iframe');
     iframe.className = 'fp-html-iframe';
-    iframe.title = currentMeta ? `HTML 预览: ${currentMeta.name}` : 'HTML 预览';
+    iframe.title = currentMeta
+      ? tr(`HTML 预览: ${currentMeta.name}`, `HTML Preview: ${currentMeta.name}`)
+      : tr('HTML 预览', 'HTML Preview');
     iframe.setAttribute('referrerpolicy', 'no-referrer');
 
     if (currentMountInfo?.url) {
@@ -103,24 +116,27 @@ export function createHtmlRenderer(): PreviewRenderer {
 
     const metaLabel = document.createElement('span');
     metaLabel.className = 'fp-html-source-meta';
-    metaLabel.textContent = `${currentMeta?.name ?? 'document.html'} · ${lineCount} 行`;
+    metaLabel.textContent = tr(
+      `${currentMeta?.name ?? 'document.html'} · ${lineCount} 行`,
+      `${currentMeta?.name ?? 'document.html'} · ${lineCount} lines`,
+    );
 
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
     copyBtn.className = 'fp-html-copy-btn';
-    copyBtn.textContent = '复制源码';
+    copyBtn.textContent = tr('复制源码', 'Copy Source');
     copyBtn.addEventListener('click', () => {
       void copyTextToClipboard(currentSourceText).then((ok) => {
         if (destroyed) return;
         if (copyTimer !== null) {
           window.clearTimeout(copyTimer);
         }
-        copyBtn.textContent = ok ? '已复制' : '复制失败';
+        copyBtn.textContent = ok ? tr('已复制', 'Copied') : tr('复制失败', 'Copy failed');
         copyBtn.classList.toggle('is-copied', ok);
         copyTimer = window.setTimeout(() => {
           copyTimer = null;
           if (!destroyed) {
-            copyBtn.textContent = '复制源码';
+            copyBtn.textContent = tr('复制源码', 'Copy Source');
             copyBtn.classList.remove('is-copied');
           }
         }, 1800);
@@ -186,6 +202,22 @@ export function createHtmlRenderer(): PreviewRenderer {
       rootEl.appendChild(warningEl);
       rootEl.appendChild(stageEl);
       container.appendChild(rootEl);
+
+      stopLocaleSync?.();
+      stopLocaleSync = onLocaleChange(() => {
+        updateWarningBanner();
+        if (currentMeta) {
+          if (htmlMode === 'source') {
+            renderSourceView();
+          } else {
+            const iframe = stageEl?.querySelector('iframe');
+            if (iframe) {
+              iframe.title = tr(`HTML 预览: ${currentMeta.name}`, `HTML Preview: ${currentMeta.name}`);
+            }
+          }
+          emitState();
+        }
+      });
     },
 
     async loadHtml(
@@ -199,9 +231,9 @@ export function createHtmlRenderer(): PreviewRenderer {
 
       if (!currentMountInfo?.url && htmlMode === 'interactive') {
         htmlMode = 'sandbox';
-        activeWarning = UNMOUNTED_INTERACTIVE_WARNING;
+        hasUnmountedInteractiveWarning = true;
       } else {
-        activeWarning = undefined;
+        hasUnmountedInteractiveWarning = false;
       }
 
       renderCurrentMode();
@@ -219,14 +251,14 @@ export function createHtmlRenderer(): PreviewRenderer {
 
       if (mode === 'interactive' && !currentMountInfo?.url) {
         htmlMode = 'sandbox';
-        activeWarning = UNMOUNTED_INTERACTIVE_WARNING;
+        hasUnmountedInteractiveWarning = true;
         renderCurrentMode();
         emitState();
         return;
       }
 
       htmlMode = mode;
-      activeWarning = undefined;
+      hasUnmountedInteractiveWarning = false;
       renderCurrentMode();
       emitState();
     },
@@ -237,6 +269,8 @@ export function createHtmlRenderer(): PreviewRenderer {
 
     destroy(): void {
       destroyed = true;
+      stopLocaleSync?.();
+      stopLocaleSync = null;
 
       if (copyTimer !== null) {
         window.clearTimeout(copyTimer);
@@ -261,7 +295,7 @@ export function createHtmlRenderer(): PreviewRenderer {
       currentMountInfo = null;
       currentSourceText = '';
       currentMeta = null;
-      activeWarning = undefined;
+      hasUnmountedInteractiveWarning = false;
       stateListeners.clear();
     },
   };

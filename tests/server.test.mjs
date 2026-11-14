@@ -25,7 +25,18 @@ registerHooks({
         url: 'mock://sidecar_sdk',
       };
     }
-    return nextResolve(specifier, context);
+    try {
+      return nextResolve(specifier, context);
+    } catch (err) {
+      if (
+        specifier.startsWith('.') &&
+        !/\.[cm]?[jt]s$/i.test(specifier) &&
+        context.parentURL?.endsWith('.ts')
+      ) {
+        return nextResolve(`${specifier}.ts`, context);
+      }
+      throw err;
+    }
   },
   load(url, context, nextLoad) {
     if (url === 'mock://sidecar_sdk') {
@@ -1863,4 +1874,78 @@ describe('dragPanner 放大拖拽平移控制器测试', () => {
     }
   });
 });
+
+describe('i18n 中英双语自动识别与错误翻译测试', () => {
+  it('detectSystemLocale 与 resolveLocale 正确识别中文及各类非中文语言偏好', async () => {
+    const { detectSystemLocale, resolveLocale } = await import('../src/utils/i18n.ts');
+
+    assert.equal(detectSystemLocale('zh-CN'), 'zh');
+    assert.equal(detectSystemLocale('ZH-tw'), 'zh');
+    assert.equal(detectSystemLocale(['zh-Hans-CN', 'en-US']), 'zh');
+    assert.equal(detectSystemLocale('en-US'), 'en');
+    assert.equal(detectSystemLocale(['fr-FR', 'en-US']), 'en');
+    assert.equal(detectSystemLocale([]), 'en');
+
+    assert.equal(resolveLocale('en', 'zh-CN'), 'en');
+    assert.equal(resolveLocale('zh', 'en-US'), 'zh');
+    assert.equal(resolveLocale('auto', 'en-GB'), 'en');
+    assert.equal(resolveLocale('auto', 'zh-HK'), 'zh');
+  });
+
+  it('setLocalePreference / cycleLocalePreference / translateApiErrorMessage 与英文 PPT 报错工作正常', async () => {
+    const {
+      cycleLocalePreference,
+      getCurrentLocale,
+      getLocalePreference,
+      getLocaleToggleDisplay,
+      onLocaleChange,
+      setLocalePreference,
+      translateApiErrorMessage,
+    } = await import('../src/utils/i18n.ts');
+    const { formatPptLoadError } = await import('../src/utils/pptConfig.ts');
+
+    const prevPref = getLocalePreference();
+    const events = [];
+    const unsubscribe = onLocaleChange((locale, pref) => {
+      events.push({ locale, pref });
+    });
+
+    try {
+      setLocalePreference('auto');
+      assert.equal(cycleLocalePreference(), 'zh');
+      assert.equal(getCurrentLocale(), 'zh');
+      assert.equal(getLocaleToggleDisplay('zh', 'zh').label, '中文');
+
+      assert.equal(cycleLocalePreference(), 'en');
+      assert.equal(getCurrentLocale(), 'en');
+      assert.equal(getLocaleToggleDisplay('en', 'en').label, 'EN');
+
+      const pptEntriesErr = formatPptLoadError(
+        new Error('PPTX zip limit exceeded: entries 5105 > maxEntries 4000'),
+      );
+      assert.match(pptEntriesErr.message, /Too many entries/);
+      assert.match(pptEntriesErr.message, /5105/);
+
+      assert.match(
+        translateApiErrorMessage('FILE_NOT_FOUND', 404, '目标文件不存在'),
+        /does not exist/i,
+      );
+      assert.match(
+        translateApiErrorMessage('UNKNOWN_CODE', 403, '无权访问'),
+        /Permission denied/i,
+      );
+      assert.equal(
+        translateApiErrorMessage('UNKNOWN_CODE', 500, 'Plain ASCII upstream error'),
+        'Plain ASCII upstream error',
+      );
+
+      assert.equal(cycleLocalePreference(), 'auto');
+      assert.equal(events.length, 4);
+    } finally {
+      unsubscribe();
+      setLocalePreference(prevPref);
+    }
+  });
+});
+
 

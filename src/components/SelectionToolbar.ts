@@ -1,4 +1,5 @@
 import { copyTextToClipboard } from '../utils/clipboard';
+import { onLocaleChange, tr } from '../utils/i18n';
 
 /**
  * 悬浮选区工具条初始化配置。
@@ -37,8 +38,11 @@ const SELECTION_GAP_PX = 8;
 const SENT_BADGE_GAP_PX = 6;
 const COPY_FEEDBACK_MS = 1400;
 const SENT_MARK_DURATION_MS = 3200;
-const DEFAULT_SENT_LABEL = '✓ 已复制选中文字';
 const MAX_SENT_RECTS = 160;
+
+function getDefaultSentLabel(): string {
+  return tr('✓ 已复制选中文字', '✓ Selection copied');
+}
 
 /**
  * 统计选中文本的可见字数（忽略空白折行干扰，并正确计算 Unicode 代理对）。
@@ -150,18 +154,14 @@ export function createSelectionToolbar(
   const barEl = document.createElement('div');
   barEl.className = 'fp-selection-bar';
   barEl.setAttribute('role', 'toolbar');
-  barEl.setAttribute('aria-label', '选中文本操作');
   barEl.hidden = true;
 
   const metaEl = document.createElement('span');
   metaEl.className = 'fp-sel-meta';
-  metaEl.title = '支持 Ctrl+C 或点击按钮复制选中文字';
 
   const copyBtn = document.createElement('button');
   copyBtn.type = 'button';
   copyBtn.className = 'fp-sel-btn fp-sel-btn-primary fp-sel-btn-copy';
-  copyBtn.title = '复制选中文字到剪贴板';
-  copyBtn.textContent = '复制';
 
   barEl.append(metaEl, copyBtn);
   hostEl.appendChild(barEl);
@@ -172,8 +172,28 @@ export function createSelectionToolbar(
   let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
   let sentClearTimer: ReturnType<typeof setTimeout> | null = null;
   let sentRange: Range | null = null;
-  let sentLabel = DEFAULT_SENT_LABEL;
+  let sentLabel = getDefaultSentLabel();
+  let customSentLabel = false;
   let pendingCopyRange: Range | null = null;
+
+  const applyLocaleText = (): void => {
+    barEl.setAttribute('aria-label', tr('选中文本操作', 'Selected text actions'));
+    metaEl.title = tr(
+      '支持 Ctrl+C 或点击按钮复制选中文字',
+      'Press Ctrl+C or click Copy to copy selected text',
+    );
+    copyBtn.title = tr('复制选中文字到剪贴板', 'Copy selected text to clipboard');
+    if (copyResetTimer === null) {
+      copyBtn.textContent = tr('复制', 'Copy');
+    } else {
+      copyBtn.textContent = tr('已复制', 'Copied');
+    }
+    if (!customSentLabel) {
+      sentLabel = getDefaultSentLabel();
+    }
+  };
+
+  applyLocaleText();
 
   const readValidSelection = (): { text: string; range: Range } | null => {
     if (destroyed || !options.isActive()) {
@@ -350,7 +370,8 @@ export function createSelectionToolbar(
     }
 
     sentRange = sourceRange.cloneRange();
-    sentLabel = (label && label.trim()) || DEFAULT_SENT_LABEL;
+    customSentLabel = Boolean(label && label.trim());
+    sentLabel = customSentLabel ? label!.trim() : getDefaultSentLabel();
 
     if (sentClearTimer !== null) {
       clearTimeout(sentClearTimer);
@@ -402,7 +423,7 @@ export function createSelectionToolbar(
     }
 
     const charCount = countSelectionChars(valid.text);
-    metaEl.textContent = `已选 ${charCount} 字`;
+    metaEl.textContent = tr(`已选 ${charCount} 字`, `${charCount} chars`);
 
     // 先以不可见状态取消 hidden 以便测量实际渲染尺寸
     barEl.style.visibility = 'hidden';
@@ -451,7 +472,7 @@ export function createSelectionToolbar(
       clearTimeout(copyResetTimer);
       copyResetTimer = null;
     }
-    copyBtn.textContent = '复制';
+    copyBtn.textContent = tr('复制', 'Copy');
     copyBtn.classList.remove('is-copied');
   };
 
@@ -495,16 +516,16 @@ export function createSelectionToolbar(
 
     if (ok) {
       resetCopyLabel();
-      copyBtn.textContent = '已复制';
+      copyBtn.textContent = tr('已复制', 'Copied');
       copyBtn.classList.add('is-copied');
       copyResetTimer = setTimeout(() => {
         copyResetTimer = null;
         if (!destroyed) {
-          copyBtn.textContent = '复制';
+          copyBtn.textContent = tr('复制', 'Copy');
           copyBtn.classList.remove('is-copied');
         }
       }, COPY_FEEDBACK_MS);
-      showSentMark(DEFAULT_SENT_LABEL);
+      showSentMark();
       hide();
     }
     pendingCopyRange = null;
@@ -551,6 +572,15 @@ export function createSelectionToolbar(
   hostEl.addEventListener('mouseup', handleHostMouseUp);
   hostEl.addEventListener('scroll', handleHostScroll, { capture: true, passive: true });
   window.addEventListener('resize', handleWindowResize);
+  const stopLocaleSync = onLocaleChange(() => {
+    applyLocaleText();
+    if (sentRange) {
+      renderSentMark();
+    }
+    if (!barEl.hidden) {
+      refresh();
+    }
+  });
 
   return {
     refresh,
@@ -563,6 +593,7 @@ export function createSelectionToolbar(
         return;
       }
       destroyed = true;
+      stopLocaleSync();
       if (rafId !== 0) {
         cancelAnimationFrame(rafId);
         rafId = 0;
