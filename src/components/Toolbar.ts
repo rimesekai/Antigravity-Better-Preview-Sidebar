@@ -8,12 +8,15 @@ import type { ThemePreference } from '../services/themeSync';
 import { formatKindBadge } from '../utils/fileMeta';
 import {
   type LocalePreference,
-  getCurrentLocale,
-  getLocalePreference,
-  getLocaleToggleDisplay,
   onLocaleChange,
   tr,
 } from '../utils/i18n';
+import { createIcon } from '../utils/icons';
+import {
+  attachToolbarRovingFocus,
+  isImeComposing,
+  renderTruncatableFileName,
+} from '../utils/uiHelpers';
 
 const LARGE_PDF_THRESHOLD_BYTES = 20 * 1024 * 1024;
 
@@ -44,6 +47,7 @@ export interface ToolbarCallbacks {
   onRevealInExplorer?: () => void;
   onToggleAutoRefresh: () => void;
   onCycleTheme?: () => void;
+  onOpenAppearance?: (anchorEl: HTMLElement) => void;
   onCycleLocale?: () => void;
   onZoomChange: (zoom: number | 'fit') => void;
   onPrevPage: () => void;
@@ -80,25 +84,8 @@ function stepZoom(current: number, direction: -1 | 1): number {
   return prev ?? clampZoom(normalized - 0.15);
 }
 
-function createSvgIcon(pathD: string, viewBox = '0 0 16 16'): SVGSVGElement {
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', viewBox);
-  svg.setAttribute('width', '14');
-  svg.setAttribute('height', '14');
-  svg.setAttribute('fill', 'none');
-  svg.setAttribute('stroke', 'currentColor');
-  svg.setAttribute('stroke-width', '1.6');
-  svg.setAttribute('stroke-linecap', 'round');
-  svg.setAttribute('stroke-linejoin', 'round');
-  svg.setAttribute('aria-hidden', 'true');
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  path.setAttribute('d', pathD);
-  svg.appendChild(path);
-  return svg;
-}
-
 /**
- * 创建顶部自适应工具栏控制器（持久 DOM 节点，避免输入时失焦）。
+ * 创建顶部自适应工具栏控制器（持久 DOM 节点，避免输入时失焦；遵循 Window Chrome 与 ARIA Toolbar 规范）。
  */
 export function createToolbar(
   container: HTMLElement,
@@ -123,12 +110,18 @@ export function createToolbar(
     reset: () => void;
   }
 
-  /** 创建紧凑搜索控件组（PPT / PDF / Excel / Word 复用）。 */
+  /** 创建胶囊搜索控件组（PPT / PDF / Excel / Word 复用，含 IME 组合态安全回车）。 */
   function createSearchCluster(placeholder: string, ariaLabel: string): SearchClusterController {
     let lastQuery = '';
 
     const clusterEl = document.createElement('div');
     clusterEl.className = 'fp-cluster fp-ppt-search';
+
+    const pillWrap = document.createElement('div');
+    pillWrap.className = 'fp-pill-search';
+
+    const searchIcon = createIcon('search', 14);
+    searchIcon.classList.add('fp-pill-search__icon');
 
     const inputEl = document.createElement('input');
     inputEl.type = 'search';
@@ -149,6 +142,9 @@ export function createToolbar(
     inputEl.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
+        if (isImeComposing(e)) {
+          return;
+        }
         if (e.shiftKey && inputEl.value.trim() === lastQuery && lastQuery) {
           callbacks.onPrevMatch();
           return;
@@ -169,26 +165,25 @@ export function createToolbar(
     });
 
     const countEl = document.createElement('span');
-    countEl.className = 'fp-search-count';
+    countEl.className = 'fp-search-count fc-tabular';
     countEl.hidden = true;
 
     const prevBtn = document.createElement('button');
     prevBtn.type = 'button';
-    prevBtn.className = 'fp-btn fp-btn-icon';
-    prevBtn.textContent = '↑';
-    prevBtn.title = tr('上一个匹配项', 'Previous match');
+    prevBtn.className = 'fp-btn fp-btn-icon fp-btn-icon--sm';
+    prevBtn.appendChild(createIcon('chevronUp', 13));
     prevBtn.hidden = true;
     prevBtn.addEventListener('click', () => callbacks.onPrevMatch());
 
     const nextBtn = document.createElement('button');
     nextBtn.type = 'button';
-    nextBtn.className = 'fp-btn fp-btn-icon';
-    nextBtn.textContent = '↓';
-    nextBtn.title = tr('下一个匹配项', 'Next match');
+    nextBtn.className = 'fp-btn fp-btn-icon fp-btn-icon--sm';
+    nextBtn.appendChild(createIcon('chevronDown', 13));
     nextBtn.hidden = true;
     nextBtn.addEventListener('click', () => callbacks.onNextMatch());
 
-    clusterEl.append(inputEl, countEl, prevBtn, nextBtn);
+    pillWrap.append(searchIcon, inputEl, countEl);
+    clusterEl.append(pillWrap, prevBtn, nextBtn);
 
     return {
       clusterEl,
@@ -198,8 +193,12 @@ export function createToolbar(
         inputEl.setAttribute('aria-label', nextAriaLabel);
       },
       refreshLocale(): void {
-        prevBtn.title = tr('上一个匹配项', 'Previous match');
-        nextBtn.title = tr('下一个匹配项', 'Next match');
+        const prevTitle = tr('上一个匹配项', 'Previous match');
+        const nextTitle = tr('下一个匹配项', 'Next match');
+        prevBtn.title = prevTitle;
+        prevBtn.setAttribute('aria-label', prevTitle);
+        nextBtn.title = nextTitle;
+        nextBtn.setAttribute('aria-label', nextTitle);
       },
       updateMatches(totalMatches: number, activeMatch: number): void {
         const hasQuery = Boolean(lastQuery);
@@ -225,20 +224,24 @@ export function createToolbar(
   root.className = 'fp-toolbar';
   root.hidden = true;
 
-  // 第一行：文件导航、标题与刷新控制
+  // 第一行：文件导航、标题与系统操作（Window Chrome）
   const primaryRow = document.createElement('div');
   primaryRow.className = 'fp-toolbar-row fp-toolbar-primary';
+  primaryRow.setAttribute('role', 'toolbar');
+  primaryRow.setAttribute('aria-label', tr('主文档工具栏', 'Document toolbar'));
 
   const leftGroup = document.createElement('div');
   leftGroup.className = 'fp-toolbar-group fp-toolbar-left';
+  leftGroup.setAttribute('role', 'group');
+  leftGroup.setAttribute('aria-label', tr('文件信息', 'File info'));
 
   const drawerBtn = document.createElement('button');
   drawerBtn.type = 'button';
   drawerBtn.className = 'fp-btn fp-btn-ghost fp-btn-files';
-  drawerBtn.title = '打开或切换工作区文件列表';
-  drawerBtn.appendChild(createSvgIcon('M2.5 4.5h4l1.2 1.5h5.8v6.5h-11z'));
+  drawerBtn.setAttribute('aria-expanded', 'false');
+  drawerBtn.setAttribute('aria-controls', 'fp-drawer-dialog');
+  drawerBtn.appendChild(createIcon('folder', 15));
   const drawerBtnText = document.createElement('span');
-  drawerBtnText.textContent = '文件';
   drawerBtn.appendChild(drawerBtnText);
   drawerBtn.addEventListener('click', () => callbacks.onToggleDrawer());
 
@@ -249,116 +252,145 @@ export function createToolbar(
   fileNameEl.className = 'fp-toolbar-filename';
 
   const largePdfBadge = document.createElement('span');
-  largePdfBadge.className = 'fp-large-pdf-badge';
-  largePdfBadge.textContent = '>20MB 流式预览';
+  largePdfBadge.className = 'fp-status-pill fp-status-pill--warn';
   largePdfBadge.hidden = true;
 
   const dropTag = document.createElement('span');
-  dropTag.className = 'fp-drop-tag';
-  dropTag.textContent = '本地拖入';
+  dropTag.className = 'fp-status-pill';
   dropTag.hidden = true;
 
   leftGroup.append(drawerBtn, fileBadge, fileNameEl, largePdfBadge, dropTag);
 
+  const primarySep = document.createElement('span');
+  primarySep.className = 'fp-toolbar-sep';
+  primarySep.setAttribute('role', 'separator');
+  primarySep.setAttribute('aria-orientation', 'vertical');
+
   const rightGroup = document.createElement('div');
   rightGroup.className = 'fp-toolbar-group fp-toolbar-right';
-
-  const revealBtn = document.createElement('button');
-  revealBtn.type = 'button';
-  revealBtn.className = 'fp-btn fp-btn-ghost fp-btn-icon-label';
-  revealBtn.title = '在文件资源管理器中查看';
-  revealBtn.appendChild(
-    createSvgIcon('M2.2 4.5a1.3 1.3 0 0 1 1.3-1.3h3l1.4 1.6h4.6a1.3 1.3 0 0 1 1.3 1.3v5.4a1.3 1.3 0 0 1-1.3 1.3h-9a1.3 1.3 0 0 1-1.3-1.3z'),
-  );
-  const revealLabel = document.createElement('span');
-  revealLabel.className = 'fp-hide-xs';
-  revealLabel.textContent = '打开位置';
-  revealBtn.appendChild(revealLabel);
-  revealBtn.addEventListener('click', () => callbacks.onRevealInExplorer?.());
-
-  const refreshBtn = document.createElement('button');
-  refreshBtn.type = 'button';
-  refreshBtn.className = 'fp-btn fp-btn-ghost fp-btn-icon-label';
-  refreshBtn.title = '立即重新加载当前文件';
-  refreshBtn.appendChild(
-    createSvgIcon('M13.2 6.5A5.5 5.5 0 1 0 13.7 10M13.5 3.2v3.3h-3.3'),
-  );
-  const refreshLabel = document.createElement('span');
-  refreshLabel.className = 'fp-hide-xs';
-  refreshLabel.textContent = '刷新';
-  refreshBtn.appendChild(refreshLabel);
-  refreshBtn.addEventListener('click', () => callbacks.onRefresh());
+  rightGroup.setAttribute('role', 'group');
+  rightGroup.setAttribute('aria-label', tr('文件与外观操作', 'File and appearance actions'));
 
   const autoRefreshBtn = document.createElement('button');
   autoRefreshBtn.type = 'button';
   autoRefreshBtn.className = 'fp-btn fp-btn-toggle';
-  autoRefreshBtn.title = '每 2.5 秒检测文件修改时间并自动刷新';
+  autoRefreshBtn.setAttribute('aria-pressed', 'true');
   const autoDot = document.createElement('span');
   autoDot.className = 'fp-auto-dot';
+  autoDot.setAttribute('aria-hidden', 'true');
   const autoText = document.createElement('span');
-  autoText.textContent = '自动刷新';
+  autoText.className = 'fp-hide-sm';
   autoRefreshBtn.append(autoDot, autoText);
-  autoRefreshBtn.addEventListener('click', () => callbacks.onToggleAutoRefresh());
+  autoRefreshBtn.addEventListener('click', () => {
+    if (autoRefreshBtn.getAttribute('aria-disabled') === 'true') return;
+    callbacks.onToggleAutoRefresh();
+  });
 
-  const themeBtn = document.createElement('button');
-  themeBtn.type = 'button';
-  themeBtn.className = 'fp-btn fp-btn-ghost';
-  themeBtn.addEventListener('click', () => callbacks.onCycleTheme?.());
+  const refreshBtn = document.createElement('button');
+  refreshBtn.type = 'button';
+  refreshBtn.className = 'fp-btn fp-btn-ghost fp-btn-icon-label';
+  const refreshIcon = createIcon('refresh', 15);
+  const refreshLabel = document.createElement('span');
+  refreshLabel.className = 'fp-hide-xs';
+  refreshBtn.append(refreshIcon, refreshLabel);
+  refreshBtn.addEventListener('click', () => {
+    if (refreshBtn.getAttribute('aria-disabled') === 'true') return;
+    callbacks.onRefresh();
+  });
 
-  const langBtn = document.createElement('button');
-  langBtn.type = 'button';
-  langBtn.className = 'fp-btn fp-btn-ghost';
-  langBtn.addEventListener('click', () => callbacks.onCycleLocale?.());
+  const revealBtn = document.createElement('button');
+  revealBtn.type = 'button';
+  revealBtn.className = 'fp-btn fp-btn-ghost fp-btn-icon-label';
+  revealBtn.appendChild(createIcon('folderOpen', 15));
+  const revealLabel = document.createElement('span');
+  revealLabel.className = 'fp-hide-xs';
+  revealBtn.appendChild(revealLabel);
+  revealBtn.addEventListener('click', () => {
+    if (revealBtn.getAttribute('aria-disabled') === 'true') return;
+    callbacks.onRevealInExplorer?.();
+  });
 
-  rightGroup.append(langBtn, themeBtn, revealBtn, refreshBtn, autoRefreshBtn);
-  primaryRow.append(leftGroup, rightGroup);
+  const appearanceBtn = document.createElement('button');
+  appearanceBtn.type = 'button';
+  appearanceBtn.className = 'fp-btn fp-btn-tonal fp-btn-appearance';
+  appearanceBtn.setAttribute('aria-haspopup', 'dialog');
+  appearanceBtn.setAttribute('aria-expanded', 'false');
+  appearanceBtn.setAttribute('aria-controls', 'fp-appearance-popover');
+  appearanceBtn.appendChild(createIcon('palette', 15));
+  const appearanceDot = document.createElement('span');
+  appearanceDot.className = 'fp-appearance-dot';
+  appearanceDot.setAttribute('aria-hidden', 'true');
+  appearanceBtn.appendChild(appearanceDot);
+  appearanceBtn.addEventListener('click', () => {
+    if (callbacks.onOpenAppearance) {
+      callbacks.onOpenAppearance(appearanceBtn);
+    } else {
+      callbacks.onCycleTheme?.();
+    }
+  });
+
+  rightGroup.append(autoRefreshBtn, refreshBtn, revealBtn, appearanceBtn);
+  primaryRow.append(leftGroup, primarySep, rightGroup);
 
   // 第二行：格式专属工具条
   const secondaryRow = document.createElement('div');
   secondaryRow.className = 'fp-toolbar-row fp-toolbar-secondary';
+  secondaryRow.setAttribute('role', 'toolbar');
+  secondaryRow.setAttribute('aria-label', tr('视图与格式控制', 'View and format controls'));
 
-  // --- PPT / PDF 分页工具条 ---
+  // --- PPT / PDF / Excel 分页工具条 ---
   const pptGroup = document.createElement('div');
   pptGroup.className = 'fp-format-controls fp-format-ppt';
   pptGroup.hidden = true;
 
   const pptLayoutSeg = document.createElement('div');
   pptLayoutSeg.className = 'fp-segmented';
+  pptLayoutSeg.setAttribute('role', 'group');
   const pptSlideBtn = document.createElement('button');
   pptSlideBtn.type = 'button';
   pptSlideBtn.className = 'fp-seg-btn';
-  pptSlideBtn.textContent = '单页';
+  pptSlideBtn.setAttribute('aria-pressed', 'true');
+  pptSlideBtn.appendChild(createIcon('slideMode', 13));
+  const pptSlideText = document.createElement('span');
+  pptSlideBtn.appendChild(pptSlideText);
   pptSlideBtn.addEventListener('click', () => callbacks.onLayoutModeChange('slide'));
 
   const pptListBtn = document.createElement('button');
   pptListBtn.type = 'button';
   pptListBtn.className = 'fp-seg-btn';
-  pptListBtn.textContent = '滚动';
+  pptListBtn.setAttribute('aria-pressed', 'false');
+  pptListBtn.appendChild(createIcon('scrollMode', 13));
+  const pptListText = document.createElement('span');
+  pptListBtn.appendChild(pptListText);
   pptListBtn.addEventListener('click', () => callbacks.onLayoutModeChange('list'));
   pptLayoutSeg.append(pptSlideBtn, pptListBtn);
 
   const pptThumbBtn = document.createElement('button');
   pptThumbBtn.type = 'button';
-  pptThumbBtn.className = 'fp-btn fp-btn-ghost';
-  pptThumbBtn.title = '切换幻灯片缩略图栏';
-  pptThumbBtn.textContent = '缩略图';
+  pptThumbBtn.className = 'fp-btn fp-btn-ghost fp-btn-compact';
+  pptThumbBtn.setAttribute('aria-pressed', 'false');
+  pptThumbBtn.appendChild(createIcon('thumbnails', 14));
+  const pptThumbText = document.createElement('span');
+  pptThumbBtn.appendChild(pptThumbText);
   pptThumbBtn.addEventListener('click', () => callbacks.onToggleThumbnails());
 
   const pptPageCluster = document.createElement('div');
-  pptPageCluster.className = 'fp-cluster';
+  pptPageCluster.className = 'fp-cluster fp-cluster--pill';
+  pptPageCluster.setAttribute('role', 'group');
 
   const prevPageBtn = document.createElement('button');
   prevPageBtn.type = 'button';
-  prevPageBtn.className = 'fp-btn fp-btn-icon';
-  prevPageBtn.title = '上一页';
-  prevPageBtn.textContent = '‹';
-  prevPageBtn.addEventListener('click', () => callbacks.onPrevPage());
+  prevPageBtn.className = 'fp-btn fp-btn-icon fp-btn-icon--sm';
+  prevPageBtn.appendChild(createIcon('chevronLeft', 14));
+  prevPageBtn.addEventListener('click', () => {
+    if (prevPageBtn.getAttribute('aria-disabled') === 'true') return;
+    callbacks.onPrevPage();
+  });
 
   const pageInput = document.createElement('input');
   pageInput.type = 'number';
   pageInput.min = '1';
-  pageInput.className = 'fp-page-input';
-  pageInput.setAttribute('aria-label', '当前页码');
+  pageInput.className = 'fp-page-input fc-tabular';
 
   const commitPageInput = () => {
     const total = latestState.preview?.totalPages ?? 1;
@@ -375,6 +407,7 @@ export function createToolbar(
   pageInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
+      if (isImeComposing(e)) return;
       commitPageInput();
       pageInput.blur();
     }
@@ -382,15 +415,17 @@ export function createToolbar(
   pageInput.addEventListener('change', commitPageInput);
 
   const pageTotalEl = document.createElement('span');
-  pageTotalEl.className = 'fp-page-total';
+  pageTotalEl.className = 'fp-page-total fc-tabular';
   pageTotalEl.textContent = '/ 1';
 
   const nextPageBtn = document.createElement('button');
   nextPageBtn.type = 'button';
-  nextPageBtn.className = 'fp-btn fp-btn-icon';
-  nextPageBtn.title = '下一页';
-  nextPageBtn.textContent = '›';
-  nextPageBtn.addEventListener('click', () => callbacks.onNextPage());
+  nextPageBtn.className = 'fp-btn fp-btn-icon fp-btn-icon--sm';
+  nextPageBtn.appendChild(createIcon('chevronRight', 14));
+  nextPageBtn.addEventListener('click', () => {
+    if (nextPageBtn.getAttribute('aria-disabled') === 'true') return;
+    callbacks.onNextPage();
+  });
 
   pptPageCluster.append(prevPageBtn, pageInput, pageTotalEl, nextPageBtn);
 
@@ -398,44 +433,45 @@ export function createToolbar(
   sheetNamePill.className = 'fp-sheet-name-pill';
   sheetNamePill.hidden = true;
 
-  // PPT 缩放控件
+  // PPT / PDF / Excel 缩放控件
   const pptZoomCluster = document.createElement('div');
-  pptZoomCluster.className = 'fp-cluster';
+  pptZoomCluster.className = 'fp-cluster fp-cluster--pill';
+  pptZoomCluster.setAttribute('role', 'group');
 
   const pptFitBtn = document.createElement('button');
   pptFitBtn.type = 'button';
-  pptFitBtn.className = 'fp-btn fp-btn-ghost';
-  pptFitBtn.textContent = '适应';
-  pptFitBtn.title = '自适应侧边栏宽度';
+  pptFitBtn.className = 'fp-btn fp-btn-chip';
+  pptFitBtn.setAttribute('aria-pressed', 'true');
+  const pptFitText = document.createElement('span');
+  pptFitBtn.appendChild(pptFitText);
   pptFitBtn.addEventListener('click', () => callbacks.onZoomChange('fit'));
 
   const pptZoomOutBtn = document.createElement('button');
   pptZoomOutBtn.type = 'button';
-  pptZoomOutBtn.className = 'fp-btn fp-btn-icon';
-  pptZoomOutBtn.textContent = '−';
-  pptZoomOutBtn.title = '缩小';
+  pptZoomOutBtn.className = 'fp-btn fp-btn-icon fp-btn-icon--sm';
+  pptZoomOutBtn.appendChild(createIcon('minus', 13));
   pptZoomOutBtn.addEventListener('click', () => {
+    if (pptZoomOutBtn.getAttribute('aria-disabled') === 'true') return;
     const current = latestState.preview?.zoom ?? 1.0;
     callbacks.onZoomChange(stepZoom(current, -1));
   });
 
   const pptZoomText = document.createElement('span');
-  pptZoomText.className = 'fp-zoom-value';
+  pptZoomText.className = 'fp-zoom-value fc-tabular';
   pptZoomText.textContent = '100%';
 
   const pptZoomInBtn = document.createElement('button');
   pptZoomInBtn.type = 'button';
-  pptZoomInBtn.className = 'fp-btn fp-btn-icon';
-  pptZoomInBtn.textContent = '+';
-  pptZoomInBtn.title = '放大';
+  pptZoomInBtn.className = 'fp-btn fp-btn-icon fp-btn-icon--sm';
+  pptZoomInBtn.appendChild(createIcon('plus', 13));
   pptZoomInBtn.addEventListener('click', () => {
+    if (pptZoomInBtn.getAttribute('aria-disabled') === 'true') return;
     const current = latestState.preview?.zoom ?? 1.0;
     callbacks.onZoomChange(stepZoom(current, 1));
   });
 
   pptZoomCluster.append(pptFitBtn, pptZoomOutBtn, pptZoomText, pptZoomInBtn);
 
-  // PPT / PDF / Excel 紧凑搜索框
   const pptSearch = createSearchCluster('搜索幻灯片 (回车)', '搜索幻灯片文本');
 
   pptGroup.append(
@@ -453,34 +489,38 @@ export function createToolbar(
   wordGroup.hidden = true;
 
   const wordZoomCluster = document.createElement('div');
-  wordZoomCluster.className = 'fp-cluster';
+  wordZoomCluster.className = 'fp-cluster fp-cluster--pill';
+  wordZoomCluster.setAttribute('role', 'group');
 
   const wordFitBtn = document.createElement('button');
   wordFitBtn.type = 'button';
-  wordFitBtn.className = 'fp-btn fp-btn-ghost';
-  wordFitBtn.textContent = '自适应宽度';
+  wordFitBtn.className = 'fp-btn fp-btn-chip';
+  wordFitBtn.setAttribute('aria-pressed', 'true');
+  wordFitBtn.appendChild(createIcon('fit', 13));
+  const wordFitText = document.createElement('span');
+  wordFitBtn.appendChild(wordFitText);
   wordFitBtn.addEventListener('click', () => callbacks.onZoomChange('fit'));
 
   const wordZoomOutBtn = document.createElement('button');
   wordZoomOutBtn.type = 'button';
-  wordZoomOutBtn.className = 'fp-btn fp-btn-icon';
-  wordZoomOutBtn.textContent = '−';
-  wordZoomOutBtn.title = '缩小';
+  wordZoomOutBtn.className = 'fp-btn fp-btn-icon fp-btn-icon--sm';
+  wordZoomOutBtn.appendChild(createIcon('minus', 13));
   wordZoomOutBtn.addEventListener('click', () => {
+    if (wordZoomOutBtn.getAttribute('aria-disabled') === 'true') return;
     const current = latestState.preview?.zoom ?? 1.0;
     callbacks.onZoomChange(stepZoom(current, -1));
   });
 
   const wordZoomText = document.createElement('span');
-  wordZoomText.className = 'fp-zoom-value';
+  wordZoomText.className = 'fp-zoom-value fc-tabular';
   wordZoomText.textContent = '100%';
 
   const wordZoomInBtn = document.createElement('button');
   wordZoomInBtn.type = 'button';
-  wordZoomInBtn.className = 'fp-btn fp-btn-icon';
-  wordZoomInBtn.textContent = '+';
-  wordZoomInBtn.title = '放大';
+  wordZoomInBtn.className = 'fp-btn fp-btn-icon fp-btn-icon--sm';
+  wordZoomInBtn.appendChild(createIcon('plus', 13));
   wordZoomInBtn.addEventListener('click', () => {
+    if (wordZoomInBtn.getAttribute('aria-disabled') === 'true') return;
     const current = latestState.preview?.zoom ?? 1.0;
     callbacks.onZoomChange(stepZoom(current, 1));
   });
@@ -488,7 +528,6 @@ export function createToolbar(
   wordZoomCluster.append(wordFitBtn, wordZoomOutBtn, wordZoomText, wordZoomInBtn);
 
   const wordSearch = createSearchCluster('搜索文档内容 (回车)', '搜索 Word 文档内容');
-
   wordGroup.append(wordZoomCluster, wordSearch.clusterEl);
 
   // --- HTML 工具条 ---
@@ -498,23 +537,33 @@ export function createToolbar(
 
   const htmlModeSeg = document.createElement('div');
   htmlModeSeg.className = 'fp-segmented';
+  htmlModeSeg.setAttribute('role', 'group');
 
   const htmlSandboxBtn = document.createElement('button');
   htmlSandboxBtn.type = 'button';
   htmlSandboxBtn.className = 'fp-seg-btn';
-  htmlSandboxBtn.textContent = '沙箱预览';
+  htmlSandboxBtn.setAttribute('aria-pressed', 'true');
+  htmlSandboxBtn.appendChild(createIcon('shield', 13));
+  const htmlSandboxText = document.createElement('span');
+  htmlSandboxBtn.appendChild(htmlSandboxText);
   htmlSandboxBtn.addEventListener('click', () => callbacks.onHtmlModeChange('sandbox'));
 
   const htmlInteractiveBtn = document.createElement('button');
   htmlInteractiveBtn.type = 'button';
   htmlInteractiveBtn.className = 'fp-seg-btn';
-  htmlInteractiveBtn.textContent = '交互模式';
+  htmlInteractiveBtn.setAttribute('aria-pressed', 'false');
+  htmlInteractiveBtn.appendChild(createIcon('play', 13));
+  const htmlInteractiveText = document.createElement('span');
+  htmlInteractiveBtn.appendChild(htmlInteractiveText);
   htmlInteractiveBtn.addEventListener('click', () => callbacks.onHtmlModeChange('interactive'));
 
   const htmlSourceBtn = document.createElement('button');
   htmlSourceBtn.type = 'button';
   htmlSourceBtn.className = 'fp-seg-btn';
-  htmlSourceBtn.textContent = '源码';
+  htmlSourceBtn.setAttribute('aria-pressed', 'false');
+  htmlSourceBtn.appendChild(createIcon('code', 13));
+  const htmlSourceText = document.createElement('span');
+  htmlSourceBtn.appendChild(htmlSourceText);
   htmlSourceBtn.addEventListener('click', () => callbacks.onHtmlModeChange('source'));
 
   htmlModeSeg.append(htmlSandboxBtn, htmlInteractiveBtn, htmlSourceBtn);
@@ -528,6 +577,14 @@ export function createToolbar(
   root.append(primaryRow, secondaryRow);
   container.appendChild(root);
 
+  const stopPrimaryRoving = attachToolbarRovingFocus(primaryRow);
+  const stopSecondaryRoving = attachToolbarRovingFocus(secondaryRow);
+
+  function setButtonAriaDisabled(btn: HTMLButtonElement, disabled: boolean): void {
+    btn.setAttribute('aria-disabled', String(disabled));
+    btn.classList.toggle('is-disabled', disabled);
+  }
+
   function updatePagedControls(preview: PreviewStateInfo | null, kind: PreviewKind): void {
     const isPdf = kind === 'pdf';
     const isExcel = kind === 'excel';
@@ -539,21 +596,33 @@ export function createToolbar(
     pptSearch.clusterEl.hidden = false;
 
     if (isExcel) {
-      prevPageBtn.title = tr('上一工作表', 'Previous sheet');
-      nextPageBtn.title = tr('下一工作表', 'Next sheet');
+      const prevTitle = tr('上一工作表', 'Previous sheet');
+      const nextTitle = tr('下一工作表', 'Next sheet');
+      prevPageBtn.title = prevTitle;
+      prevPageBtn.setAttribute('aria-label', prevTitle);
+      nextPageBtn.title = nextTitle;
+      nextPageBtn.setAttribute('aria-label', nextTitle);
       pageInput.setAttribute('aria-label', tr('当前工作表序号', 'Current sheet index'));
       pptFitBtn.title = tr('重置为标准视图', 'Reset to 100% view');
       pptSearch.setPlaceholder(tr('搜索表格内容 (回车)', 'Search sheet (Enter)'), tr('搜索表格内容', 'Search sheet'));
     } else if (isPdf) {
-      prevPageBtn.title = tr('上一页', 'Previous page');
-      nextPageBtn.title = tr('下一页', 'Next page');
+      const prevTitle = tr('上一页', 'Previous page');
+      const nextTitle = tr('下一页', 'Next page');
+      prevPageBtn.title = prevTitle;
+      prevPageBtn.setAttribute('aria-label', prevTitle);
+      nextPageBtn.title = nextTitle;
+      nextPageBtn.setAttribute('aria-label', nextTitle);
       pageInput.setAttribute('aria-label', tr('当前页码', 'Current page'));
       pptFitBtn.title = tr('自适应侧边栏宽度', 'Fit sidebar width');
       pptThumbBtn.title = tr('切换页面缩略图栏', 'Toggle page thumbnails');
       pptSearch.setPlaceholder(tr('搜索 PDF 文本 (回车)', 'Search PDF (Enter)'), tr('搜索 PDF 文本', 'Search PDF text'));
     } else {
-      prevPageBtn.title = tr('上一页', 'Previous page');
-      nextPageBtn.title = tr('下一页', 'Next page');
+      const prevTitle = tr('上一页', 'Previous page');
+      const nextTitle = tr('下一页', 'Next page');
+      prevPageBtn.title = prevTitle;
+      prevPageBtn.setAttribute('aria-label', prevTitle);
+      nextPageBtn.title = nextTitle;
+      nextPageBtn.setAttribute('aria-label', nextTitle);
       pageInput.setAttribute('aria-label', tr('当前页码', 'Current page'));
       pptFitBtn.title = tr('自适应侧边栏宽度', 'Fit sidebar width');
       pptThumbBtn.title = tr('切换幻灯片缩略图栏', 'Toggle slide thumbnails');
@@ -578,8 +647,9 @@ export function createToolbar(
     const fitMode = preview?.fitMode ?? true;
     const zoom = preview?.zoom ?? 1.0;
 
-    pptSlideBtn.classList.toggle('is-active', layoutMode === 'slide');
-    pptListBtn.classList.toggle('is-active', layoutMode === 'list');
+    pptSlideBtn.setAttribute('aria-pressed', String(layoutMode === 'slide'));
+    pptListBtn.setAttribute('aria-pressed', String(layoutMode === 'list'));
+    pptThumbBtn.setAttribute('aria-pressed', String(thumbs));
     pptThumbBtn.classList.toggle('is-active', thumbs);
 
     if (document.activeElement !== pageInput) {
@@ -587,13 +657,14 @@ export function createToolbar(
     }
     pageInput.max = String(totalPages);
     pageTotalEl.textContent = `/ ${totalPages}`;
-    prevPageBtn.disabled = page <= 1;
-    nextPageBtn.disabled = page >= totalPages;
+    setButtonAriaDisabled(prevPageBtn, page <= 1);
+    setButtonAriaDisabled(nextPageBtn, page >= totalPages);
 
+    pptFitBtn.setAttribute('aria-pressed', String(fitMode));
     pptFitBtn.classList.toggle('is-active', fitMode);
     pptZoomText.textContent = `${Math.round(zoom * 100)}%`;
-    pptZoomOutBtn.disabled = zoom <= 0.5;
-    pptZoomInBtn.disabled = zoom >= 2.0;
+    setButtonAriaDisabled(pptZoomOutBtn, zoom <= 0.5);
+    setButtonAriaDisabled(pptZoomInBtn, zoom >= 2.0);
 
     const totalMatches = preview?.searchMatches ?? 0;
     const activeMatch = preview?.activeMatch ?? 0;
@@ -603,10 +674,11 @@ export function createToolbar(
   function updateWordControls(preview: PreviewStateInfo | null): void {
     const fitMode = preview?.fitMode ?? true;
     const zoom = preview?.zoom ?? 1.0;
+    wordFitBtn.setAttribute('aria-pressed', String(fitMode));
     wordFitBtn.classList.toggle('is-active', fitMode);
     wordZoomText.textContent = `${Math.round(zoom * 100)}%`;
-    wordZoomOutBtn.disabled = zoom <= 0.5;
-    wordZoomInBtn.disabled = zoom >= 2.0;
+    setButtonAriaDisabled(wordZoomOutBtn, zoom <= 0.5);
+    setButtonAriaDisabled(wordZoomInBtn, zoom >= 2.0);
 
     const totalMatches = preview?.searchMatches ?? 0;
     const activeMatch = preview?.activeMatch ?? 0;
@@ -615,9 +687,9 @@ export function createToolbar(
 
   function updateHtmlControls(preview: PreviewStateInfo | null, file: ToolbarFileMeta): void {
     const mode: HtmlPreviewMode = preview?.htmlMode ?? 'sandbox';
-    htmlSandboxBtn.classList.toggle('is-active', mode === 'sandbox');
-    htmlInteractiveBtn.classList.toggle('is-active', mode === 'interactive');
-    htmlSourceBtn.classList.toggle('is-active', mode === 'source');
+    htmlSandboxBtn.setAttribute('aria-pressed', String(mode === 'sandbox'));
+    htmlInteractiveBtn.setAttribute('aria-pressed', String(mode === 'interactive'));
+    htmlSourceBtn.setAttribute('aria-pressed', String(mode === 'source'));
 
     htmlStatusBanner.classList.remove('is-warn', 'is-safe', 'is-interactive');
     if (preview?.warning) {
@@ -637,36 +709,67 @@ export function createToolbar(
   }
 
   function applyStaticLocaleText(): void {
-    drawerBtn.title = tr('打开或切换工作区文件列表', 'Toggle workspace file list');
-    drawerBtnText.textContent = tr('文件', 'Files');
-    largePdfBadge.textContent = tr('>20MB 流式预览', '>20MB Streaming');
-    dropTag.textContent = tr('本地拖入', 'Local Drop');
-    revealBtn.title = tr('在文件资源管理器中查看当前文件', 'Reveal current file in Explorer');
-    revealLabel.textContent = tr('打开位置', 'Reveal');
-    refreshBtn.title = tr('立即重新加载当前文件', 'Reload current file');
-    refreshLabel.textContent = tr('刷新', 'Refresh');
-    autoText.textContent = tr('自动刷新', 'Auto Refresh');
+    primaryRow.setAttribute('aria-label', tr('主文档工具栏', 'Document toolbar'));
+    secondaryRow.setAttribute('aria-label', tr('视图与格式控制', 'View and format controls'));
+    leftGroup.setAttribute('aria-label', tr('文件信息', 'File info'));
+    rightGroup.setAttribute('aria-label', tr('文件与外观操作', 'File and appearance actions'));
+    pptLayoutSeg.setAttribute('aria-label', tr('页面排版模式', 'Layout mode'));
+    pptPageCluster.setAttribute('aria-label', tr('翻页控制', 'Page navigation'));
+    pptZoomCluster.setAttribute('aria-label', tr('缩放控制', 'Zoom controls'));
+    wordZoomCluster.setAttribute('aria-label', tr('缩放控制', 'Zoom controls'));
+    htmlModeSeg.setAttribute('aria-label', tr('HTML 预览模式', 'HTML preview mode'));
 
-    pptSlideBtn.textContent = tr('单页', 'Slide');
-    pptListBtn.textContent = tr('滚动', 'Scroll');
-    pptThumbBtn.textContent = tr('缩略图', 'Thumbs');
-    pptFitBtn.textContent = tr('适应', 'Fit');
-    pptZoomOutBtn.title = tr('缩小', 'Zoom out');
-    pptZoomInBtn.title = tr('放大', 'Zoom in');
+    const filesTitle = tr('打开或切换工作区文件列表', 'Toggle workspace file list');
+    drawerBtn.title = filesTitle;
+    drawerBtn.setAttribute('aria-label', filesTitle);
+    drawerBtnText.textContent = tr('文件', 'Files');
+
+    largePdfBadge.textContent = tr('>20MB 流式', '>20MB Stream');
+    dropTag.textContent = tr('本地拖入', 'Local Drop');
+
+    const revealTitle = tr('在文件资源管理器中查看当前文件', 'Reveal current file in Explorer');
+    revealBtn.title = revealTitle;
+    revealBtn.setAttribute('aria-label', revealTitle);
+    revealLabel.textContent = tr('位置', 'Reveal');
+
+    const refreshTitle = tr('立即重新加载当前文件', 'Reload current file');
+    refreshBtn.title = refreshTitle;
+    refreshBtn.setAttribute('aria-label', refreshTitle);
+    refreshLabel.textContent = tr('刷新', 'Refresh');
+
+    autoText.textContent = tr('自动刷新', 'Auto');
+
+    const appearanceTitle = tr('外观、明暗主题与语言设置', 'Appearance, theme & language');
+    appearanceBtn.title = appearanceTitle;
+    appearanceBtn.setAttribute('aria-label', appearanceTitle);
+
+    pptSlideText.textContent = tr('单页', 'Slide');
+    pptListText.textContent = tr('滚动', 'Scroll');
+    pptThumbText.textContent = tr('缩略图', 'Thumbs');
+    pptFitText.textContent = tr('适应', 'Fit');
+    const zoomOutTitle = tr('缩小', 'Zoom out');
+    const zoomInTitle = tr('放大', 'Zoom in');
+    pptZoomOutBtn.title = zoomOutTitle;
+    pptZoomOutBtn.setAttribute('aria-label', zoomOutTitle);
+    pptZoomInBtn.title = zoomInTitle;
+    pptZoomInBtn.setAttribute('aria-label', zoomInTitle);
     pptSearch.refreshLocale();
 
-    wordFitBtn.textContent = tr('自适应宽度', 'Fit Width');
-    wordZoomOutBtn.title = tr('缩小', 'Zoom out');
-    wordZoomInBtn.title = tr('放大', 'Zoom in');
+    wordFitText.textContent = tr('适应宽度', 'Fit Width');
+    wordFitBtn.title = tr('自适应侧边栏宽度', 'Fit sidebar width');
+    wordZoomOutBtn.title = zoomOutTitle;
+    wordZoomOutBtn.setAttribute('aria-label', zoomOutTitle);
+    wordZoomInBtn.title = zoomInTitle;
+    wordZoomInBtn.setAttribute('aria-label', zoomInTitle);
     wordSearch.setPlaceholder(
       tr('搜索文档内容 (回车)', 'Search document (Enter)'),
       tr('搜索 Word 文档内容', 'Search Word document'),
     );
     wordSearch.refreshLocale();
 
-    htmlSandboxBtn.textContent = tr('沙箱预览', 'Sandbox');
-    htmlInteractiveBtn.textContent = tr('交互模式', 'Interactive');
-    htmlSourceBtn.textContent = tr('源码', 'Source');
+    htmlSandboxText.textContent = tr('沙箱', 'Sandbox');
+    htmlInteractiveText.textContent = tr('交互', 'Interactive');
+    htmlSourceText.textContent = tr('源码', 'Source');
   }
 
   applyStaticLocaleText();
@@ -685,6 +788,7 @@ export function createToolbar(
     }
 
     applyStaticLocaleText();
+    drawerBtn.setAttribute('aria-expanded', String(state.drawerOpen));
     drawerBtn.classList.toggle('is-active', state.drawerOpen);
 
     const file = state.file;
@@ -692,7 +796,7 @@ export function createToolbar(
       fileBadge.hidden = false;
       fileBadge.dataset.kind = file.kind;
       fileBadge.textContent = formatKindBadge(file.kind, file.ext);
-      fileNameEl.textContent = file.name;
+      renderTruncatableFileName(fileNameEl, file.name);
       fileNameEl.title = file.isLocalDrop
         ? tr(`${file.name}（本地拖拽文件）`, `${file.name} (Local dropped file)`)
         : file.path;
@@ -712,32 +816,17 @@ export function createToolbar(
     }
 
     const isDiskFile = Boolean(file && !file.isLocalDrop);
-    revealBtn.disabled = !isDiskFile;
-    refreshBtn.disabled = !isDiskFile || state.loading;
-    autoRefreshBtn.disabled = !isDiskFile;
-    autoRefreshBtn.classList.toggle('is-active', isDiskFile && state.autoRefresh);
+    setButtonAriaDisabled(revealBtn, !isDiskFile);
+    setButtonAriaDisabled(refreshBtn, !isDiskFile || state.loading);
+    refreshIcon.classList.toggle('is-spinning', state.loading);
+
+    setButtonAriaDisabled(autoRefreshBtn, !isDiskFile);
+    const autoOn = isDiskFile && state.autoRefresh;
+    autoRefreshBtn.setAttribute('aria-pressed', String(autoOn));
+    autoRefreshBtn.classList.toggle('is-active', autoOn);
     autoRefreshBtn.title = isDiskFile
       ? tr('每 2.5 秒检查一次磁盘修改时间并自动刷新', 'Check file changes every 2.5s and auto-reload')
       : tr('拖拽的本地内存文件无磁盘路径，暂不支持自动监听刷新', 'Dropped local files have no disk path for auto-refresh');
-
-    const localePref = state.localePreference ?? getLocalePreference();
-    const langDisplay = getLocaleToggleDisplay(localePref, getCurrentLocale());
-    langBtn.textContent = langDisplay.label;
-    langBtn.title = langDisplay.title;
-
-    const themePref = state.themePreference ?? 'auto';
-    themeBtn.textContent =
-      themePref === 'light'
-        ? tr('浅色', 'Light')
-        : themePref === 'dark'
-          ? tr('深色', 'Dark')
-          : tr('自动', 'Auto');
-    themeBtn.title =
-      themePref === 'light'
-        ? tr('当前：浅色模式（点击切换为深色）', 'Theme: Light (click for Dark)')
-        : themePref === 'dark'
-          ? tr('当前：深色模式（点击切换为跟随宿主）', 'Theme: Dark (click for Auto)')
-          : tr('当前：跟随宿主主题（点击切换为浅色）', 'Theme: Auto (click for Light)');
 
     const showFormatRow = Boolean(file && !state.hasError && file.kind !== 'mp4');
     secondaryRow.hidden = !showFormatRow;
@@ -764,7 +853,7 @@ export function createToolbar(
 
   function handleGlobalFindShortcut(e: KeyboardEvent): void {
     if (!latestState.visible || latestState.hasError || !latestState.file) return;
-    if (e.defaultPrevented || e.isComposing) return;
+    if (e.defaultPrevented || isImeComposing(e)) return;
     if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
     if (e.key.toLowerCase() !== 'f') return;
 
@@ -791,6 +880,8 @@ export function createToolbar(
 
   function destroy(): void {
     stopLocaleSync();
+    stopPrimaryRoving();
+    stopSecondaryRoving();
     window.removeEventListener('keydown', handleGlobalFindShortcut);
     root.remove();
   }

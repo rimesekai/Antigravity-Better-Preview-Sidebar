@@ -25,6 +25,31 @@
 
 ---
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="./assets/screenshots/welcome-light.png" alt="Welcome Light Theme" width="100%" /><br />
+      <sub><b>Welcome · Light Mode (Custom Accent Seed)</b></sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="./assets/screenshots/welcome-dark.png" alt="Welcome Dark Theme" width="100%" /><br />
+      <sub><b>Welcome · Dark Mode</b></sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="./assets/screenshots/preview-ppt-light.png" alt="PPT Preview Light Mode" width="100%" /><br />
+      <sub><b>PPTX Preview · Light Azure</b></sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="./assets/screenshots/preview-ppt-dark.png" alt="PPT Preview Dark Mode" width="100%" /><br />
+      <sub><b>PPTX Preview · Dark Warm Amber</b></sub>
+    </td>
+  </tr>
+</table>
+
 ## Supported Formats Overview
 
 | Format | Engine / Transport | Size Limit | Highlights |
@@ -44,7 +69,7 @@
 - **PDF Preview (`.pdf`, >20MB streaming)**: Powered by `pdfjs-dist` over a dedicated local HTTP Range (`206 Partial Content`) server so large PDFs load on demand without buffering the entire file into memory; supports slide / list views, collapsible thumbnails, zoom / fit, blank-area left-drag or anywhere middle-drag to pan (auto text selection over the text layer) when zoomed, page jump, and cross-page text search.
 - **MP4 Playback (`.mp4`, >20MB streaming)**: Streams local videos up to 4GB via local HTTP Range (`206 Partial Content`) with scrubbing, `0.5x–2x` playback speed, and loop toggle.
 - **HTML Preview (`.html` / `.htm`)**: Served on demand from an isolated local static server (`127.0.0.1:0`) supporting relative assets (CSS / JS / images / fonts) within the file / workspace root; provides Sandbox, Interactive, and Read-only Source views.
-- **In-Place Auto-Refresh, Theme Sync & Bilingual UI**: Watches disk file `mtimeMs` / `size` every 2.5s and reloads active renderers in place when supported (preserving active slide / sheet, zoom, scroll offset, and search highlights); preserves accurate format badges on load errors and recovers automatically once the file is fixed; follows Antigravity light / dark themes with an `Auto / Light / Dark` toggle, and automatically adapts between English and Simplified Chinese UI (`Auto / 中文 / EN` toggle available on both the welcome screen and toolbar).
+- **In-Place Auto-Refresh, Appearance Engine & Bilingual UI**: Watches disk file `mtimeMs` / `size` every 2.5s and reloads active renderers in place when supported (preserving active slide / sheet, zoom, scroll offset, and search highlights); preserves accurate format badges on load errors and recovers automatically once the file is fixed; features a borderless 4-level surface hierarchy with tabular numerals, automatically follows Antigravity light / dark themes, and includes an Appearance popover (`Auto / Light / Dark`, auto-paired Light Azure / Dark Warm Amber plus 6 accent seed presets, 4 color styles, Pure Black OLED, Liquid Glass overlays, and `Auto / 简体中文 / English` language switcher).
 - **Direct Text Selection, Smart Blank-Area Panning & Selection Feedback**: Text selection is enabled by default across preview renderers (PPT, Word, Excel, PDF, HTML source, etc.) with high-contrast `::selection` highlighting and no manual mode toggle; when zoomed in on PPT / PDF / Word, hovering over text automatically switches to a text cursor for left-drag selection, while dragging blank areas (or middle-dragging anywhere) switches to a grab cursor and pans the viewport. Selecting text shows a floating hint bar with a live character count badge and one-click **Copy**, rendering a tracked highlight overlay and status badge over the copied selection.
 - **Workspace Discovery & Associations**: Automatically opens supported extensions from the workspace via `file_extensions`, plus a workspace file drawer, direct path input, and drag-and-drop preview.
 

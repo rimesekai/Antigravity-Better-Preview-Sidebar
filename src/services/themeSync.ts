@@ -2,8 +2,48 @@ import { updateCachedWorkspaceUris } from './sidecarClient';
 
 export type ThemeMode = 'dark' | 'light';
 export type ThemePreference = 'auto' | 'light' | 'dark';
+export type SeedId = 'auto-pair' | 'azure' | 'amber' | 'emerald' | 'violet' | 'rose' | 'cyan';
+export type ColorStyle = 'vivid' | 'tinted' | 'soft' | 'monochrome';
+
+export interface SeedPreset {
+  id: Exclude<SeedId, 'auto-pair'>;
+  nameZh: string;
+  nameEn: string;
+  hex: string;
+  h: number;
+  s: number;
+  lLight: number;
+  lDark: number;
+}
+
+export interface AppearancePrefs {
+  seedId: SeedId;
+  colorStyle: ColorStyle;
+  pureBlack: boolean;
+  liquidGlass: boolean;
+}
+
+export const SEED_PRESETS: readonly SeedPreset[] = [
+  { id: 'azure', nameZh: '经典蓝', nameEn: 'Azure', hex: '#0A7AFF', h: 212, s: 100, lLight: 52, lDark: 63 },
+  { id: 'amber', nameZh: '暖琥珀', nameEn: 'Amber', hex: '#F59E3D', h: 32, s: 90, lLight: 48, lDark: 62 },
+  { id: 'emerald', nameZh: '翡翠绿', nameEn: 'Emerald', hex: '#10B981', h: 160, s: 84, lLight: 39, lDark: 55 },
+  { id: 'violet', nameZh: '紫罗兰', nameEn: 'Violet', hex: '#7C3AED', h: 262, s: 83, lLight: 58, lDark: 69 },
+  { id: 'rose', nameZh: '珊瑚红', nameEn: 'Rose', hex: '#F43F5E', h: 350, s: 89, lLight: 56, lDark: 65 },
+  { id: 'cyan', nameZh: '北欧青', nameEn: 'Cyan', hex: '#06B6D4', h: 189, s: 94, lLight: 41, lDark: 56 },
+];
 
 const THEME_PREF_STORAGE_KEY = 'file-preview:theme-preference';
+const APPEARANCE_PREFS_STORAGE_KEY = 'file-preview:appearance-prefs';
+
+const DEFAULT_APPEARANCE_PREFS: AppearancePrefs = {
+  seedId: 'auto-pair',
+  colorStyle: 'vivid',
+  pureBlack: false,
+  liquidGlass: true,
+};
+
+type AppearanceListener = (prefs: AppearancePrefs, theme: ThemeMode, pref: ThemePreference) => void;
+const appearanceListeners = new Set<AppearanceListener>();
 
 interface SidecarWorkspaceWindowLike {
   sidecar?: {
@@ -158,6 +198,15 @@ function resolveFallbackTheme(root: HTMLElement): ThemeMode {
   if (root.classList.contains('light')) {
     return 'light';
   }
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    try {
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        return 'dark';
+      }
+    } catch {
+      // 忽略受限媒体查询异常
+    }
+  }
   return 'light';
 }
 
@@ -192,15 +241,124 @@ export function getThemePreference(): ThemePreference {
 }
 
 /**
+ * 读取本地保存的外观定制偏好（种子色、色彩风格、纯黑 OLED、Liquid Glass）。
+ */
+export function getAppearancePrefs(): AppearancePrefs {
+  try {
+    const raw = window.localStorage.getItem(APPEARANCE_PREFS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<AppearancePrefs> | null;
+      if (parsed && typeof parsed === 'object') {
+        const validSeed =
+          parsed.seedId === 'auto-pair' || SEED_PRESETS.some((p) => p.id === parsed.seedId);
+        const validStyle =
+          parsed.colorStyle === 'vivid' ||
+          parsed.colorStyle === 'tinted' ||
+          parsed.colorStyle === 'soft' ||
+          parsed.colorStyle === 'monochrome';
+        return {
+          seedId: validSeed ? parsed.seedId! : DEFAULT_APPEARANCE_PREFS.seedId,
+          colorStyle: validStyle ? parsed.colorStyle! : DEFAULT_APPEARANCE_PREFS.colorStyle,
+          pureBlack:
+            typeof parsed.pureBlack === 'boolean'
+              ? parsed.pureBlack
+              : DEFAULT_APPEARANCE_PREFS.pureBlack,
+          liquidGlass:
+            typeof parsed.liquidGlass === 'boolean'
+              ? parsed.liquidGlass
+              : DEFAULT_APPEARANCE_PREFS.liquidGlass,
+        };
+      }
+    }
+  } catch {
+    // 忽略受限存储或 JSON 解析异常
+  }
+  return { ...DEFAULT_APPEARANCE_PREFS };
+}
+
+function notifyAppearanceListeners(resolvedTheme: ThemeMode): void {
+  const prefs = getAppearancePrefs();
+  const pref = getThemePreference();
+  for (const listener of appearanceListeners) {
+    try {
+      listener(prefs, resolvedTheme, pref);
+    } catch (err) {
+      console.error('[themeSync] appearance listener error:', err);
+    }
+  }
+}
+
+/**
+ * 将当前外观偏好（种子色动态变量、色彩衍生风格、纯黑 OLED 与 Liquid Glass）应用到根元素。
+ */
+export function applyAppearancePrefs(resolvedTheme: ThemeMode): AppearancePrefs {
+  const root = document.documentElement;
+  const prefs = getAppearancePrefs();
+
+  root.dataset.seedId = prefs.seedId;
+  root.dataset.colorStyle = prefs.colorStyle;
+  root.dataset.pureBlack = String(prefs.pureBlack);
+  root.dataset.liquidGlass = String(prefs.liquidGlass);
+
+  const seed =
+    prefs.seedId === 'auto-pair'
+      ? resolvedTheme === 'dark'
+        ? SEED_PRESETS[1]
+        : SEED_PRESETS[0]
+      : SEED_PRESETS.find((item) => item.id === prefs.seedId) ?? SEED_PRESETS[0];
+
+  root.style.setProperty('--fc-seed-h', String(seed.h));
+  root.style.setProperty('--fc-seed-s', `${seed.s}%`);
+  root.style.setProperty('--fc-seed-l-light', `${seed.lLight}%`);
+  root.style.setProperty('--fc-seed-l-dark', `${seed.lDark}%`);
+
+  return prefs;
+}
+
+/**
+ * 更新并持久化外观定制偏好，并立即同步到文档根节点。
+ */
+export function updateAppearancePrefs(partial: Partial<AppearancePrefs>): AppearancePrefs {
+  const next: AppearancePrefs = {
+    ...getAppearancePrefs(),
+    ...partial,
+  };
+  try {
+    window.localStorage.setItem(APPEARANCE_PREFS_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // 忽略受限存储环境异常
+  }
+  const resolved = syncThemeAttribute();
+  notifyAppearanceListeners(resolved);
+  return next;
+}
+
+/**
+ * 订阅外观与主题变更，返回取消订阅函数。
+ */
+export function subscribeAppearanceChanges(listener: AppearanceListener): () => void {
+  appearanceListeners.add(listener);
+  return () => {
+    appearanceListeners.delete(listener);
+  };
+}
+
+/**
  * 保存主题偏好并立即应用到根元素。
  */
 export function setThemePreference(pref: ThemePreference): ThemeMode {
   try {
-    window.localStorage.setItem(THEME_PREF_STORAGE_KEY, pref);
+    if (pref === 'auto') {
+      window.localStorage.removeItem(THEME_PREF_STORAGE_KEY);
+    } else {
+      window.localStorage.setItem(THEME_PREF_STORAGE_KEY, pref);
+    }
   } catch {
     // 忽略受限存储环境异常
   }
-  return syncThemeAttribute();
+  const resolved = syncThemeAttribute();
+  notifyAppearanceListeners(resolved);
+  return resolved;
 }
 
 /**
@@ -215,21 +373,32 @@ export function cycleThemePreference(): { preference: ThemePreference; theme: Th
 }
 
 /**
- * 根据用户偏好或宿主 CSS 变量（--background / --card / --foreground）同步更新 data-theme。
+ * 根据用户偏好或宿主 CSS 变量（--background / --card / --foreground）同步更新 data-theme、meta[color-scheme] 与设计令牌。
  */
 export function syncThemeAttribute(): ThemeMode {
   const root = document.documentElement;
   const pref = getThemePreference();
+  const meta = document.querySelector('meta[name="color-scheme"]');
 
   if (pref === 'light' || pref === 'dark') {
     root.dataset.themeOverride = pref;
     if (root.dataset.theme !== pref) {
       root.dataset.theme = pref;
     }
+    if (root.dataset.resolvedTheme !== pref) {
+      root.dataset.resolvedTheme = pref;
+    }
+    if (meta && meta.getAttribute('content') !== pref) {
+      meta.setAttribute('content', pref);
+    }
+    applyAppearancePrefs(pref);
     return pref;
   }
 
   delete root.dataset.themeOverride;
+  if (meta && meta.getAttribute('content') !== 'light dark') {
+    meta.setAttribute('content', 'light dark');
+  }
 
   const computed = getComputedStyle(root);
   const rawBackground = computed.getPropertyValue('--background').trim();
@@ -264,12 +433,16 @@ export function syncThemeAttribute(): ThemeMode {
   if (root.dataset.theme !== resolvedTheme) {
     root.dataset.theme = resolvedTheme;
   }
+  if (root.dataset.resolvedTheme !== resolvedTheme) {
+    root.dataset.resolvedTheme = resolvedTheme;
+  }
 
+  applyAppearancePrefs(resolvedTheme);
   return resolvedTheme;
 }
 
 /**
- * 启动宿主主题同步监听（监听 root style/class 属性变化与宿主 theme-change 消息）。
+ * 启动宿主主题同步监听（监听 root style/class 属性变化、系统媒体偏好、跨标签存储与宿主 theme-change 消息）。
  */
 export function startThemeSync(onThemeChange?: (theme: ThemeMode) => void): () => void {
   let lastTheme = syncThemeAttribute();
@@ -277,6 +450,7 @@ export function startThemeSync(onThemeChange?: (theme: ThemeMode) => void): () =
 
   const handleUpdate = () => {
     const current = syncThemeAttribute();
+    notifyAppearanceListeners(current);
     if (current !== lastTheme) {
       lastTheme = current;
       onThemeChange?.(current);
@@ -299,11 +473,34 @@ export function startThemeSync(onThemeChange?: (theme: ThemeMode) => void): () =
     }
   };
 
+  const handleStorage = (event: StorageEvent) => {
+    if (
+      event.key === THEME_PREF_STORAGE_KEY ||
+      event.key === APPEARANCE_PREFS_STORAGE_KEY ||
+      event.key === null
+    ) {
+      handleUpdate();
+    }
+  };
+
+  let colorMedia: MediaQueryList | null = null;
+  if (typeof window.matchMedia === 'function') {
+    try {
+      colorMedia = window.matchMedia('(prefers-color-scheme: dark)');
+      colorMedia.addEventListener?.('change', handleUpdate);
+    } catch {
+      colorMedia = null;
+    }
+  }
+
   window.addEventListener('message', handleWindowMessage);
+  window.addEventListener('storage', handleStorage);
 
   return () => {
     observer.disconnect();
     window.removeEventListener('message', handleWindowMessage);
+    window.removeEventListener('storage', handleStorage);
+    colorMedia?.removeEventListener?.('change', handleUpdate);
   };
 }
 

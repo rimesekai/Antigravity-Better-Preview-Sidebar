@@ -1,12 +1,7 @@
 import type { PreviewKind, WorkspaceFileItem } from '../types/preview';
-import {
-  cycleLocalePreference,
-  getCurrentLocale,
-  getLocalePreference,
-  getLocaleToggleDisplay,
-  onLocaleChange,
-  tr,
-} from '../utils/i18n';
+import { onLocaleChange, tr } from '../utils/i18n';
+import { createIcon } from '../utils/icons';
+import { attachTablistKeyboard, renderTruncatableFileName } from '../utils/uiHelpers';
 
 const LARGE_PDF_THRESHOLD_BYTES = 20 * 1024 * 1024;
 
@@ -25,6 +20,7 @@ export interface WorkspaceBrowserCallbacks {
   onOpenLocalFile: (file: File) => void;
   onRefreshList: () => void;
   onCloseDrawer?: () => void;
+  onOpenAppearance?: (anchorEl: HTMLElement) => void;
 }
 
 export interface WorkspaceBrowserController {
@@ -62,22 +58,22 @@ function formatModifiedTime(mtimeMs: number): string {
 }
 
 function getKindShortLabel(kind: PreviewKind, ext: string): string {
-  if (kind === 'ppt') return 'PPTX';
-  if (kind === 'word') return 'DOCX';
+  if (kind === 'ppt') return 'PPT';
+  if (kind === 'word') return 'DOC';
   if (kind === 'excel') {
     const normalized = ext.toLowerCase();
     if (normalized === '.csv') return 'CSV';
     if (normalized === '.tsv') return 'TSV';
     if (normalized === '.xls') return 'XLS';
-    return 'XLSX';
+    return 'XLS';
   }
   if (kind === 'pdf') return 'PDF';
   if (kind === 'mp4') return 'MP4';
-  return ext.toLowerCase() === '.htm' ? 'HTM' : 'HTML';
+  return ext.toLowerCase() === '.htm' ? 'HTM' : 'HTM';
 }
 
 /**
- * 创建工作区文档浏览器与欢迎页组件（支持全页模式与抽屉模式）。
+ * 创建工作区文档浏览器与欢迎页组件（四层无边框明度台阶体系，支持欢迎页与抽屉双模式）。
  */
 export function createWorkspaceBrowser(
   container: HTMLElement,
@@ -93,25 +89,44 @@ export function createWorkspaceBrowser(
     activePath: null,
   };
 
+  const uidPrefix = `fp-wb-${Math.random().toString(36).slice(2, 7)}`;
+
   const root = document.createElement('div');
   root.className = 'fp-browser';
 
-  // 欢迎区（仅在 welcome 模式显示）
+  // =========================================================================
+  // 1. 欢迎页 Hero 概览卡片
+  // =========================================================================
   const hero = document.createElement('section');
-  hero.className = 'fp-hero';
+  hero.className = 'fp-hero fc-card';
+
+  const heroInner = document.createElement('div');
+  heroInner.className = 'fp-hero__inner';
+
+  const heroTopRow = document.createElement('div');
+  heroTopRow.className = 'fp-hero__top';
 
   const heroBrand = document.createElement('div');
   heroBrand.className = 'fp-hero-brand';
+
+  const logoWell = document.createElement('div');
+  logoWell.className = 'fp-hero-logo-well';
 
   const logoImg = document.createElement('img');
   logoImg.src = '/assets/logo.svg';
   logoImg.alt = 'File Preview';
   logoImg.className = 'fp-hero-logo';
+  const logoFallback = createIcon('fileText', 20);
+  logoFallback.classList.add('fp-hero-logo-fallback');
+  logoFallback.style.display = 'none';
   logoImg.addEventListener('error', () => {
     logoImg.hidden = true;
+    logoFallback.style.display = '';
   });
+  logoWell.append(logoImg, logoFallback);
 
   const heroTitleBox = document.createElement('div');
+  heroTitleBox.className = 'fp-hero-title-box';
   const heroTitle = document.createElement('h1');
   heroTitle.className = 'fp-hero-title';
   heroTitle.textContent = 'File Preview';
@@ -119,45 +134,96 @@ export function createWorkspaceBrowser(
   heroSub.className = 'fp-hero-subtitle';
   heroTitleBox.append(heroTitle, heroSub);
 
-  heroBrand.append(logoImg, heroTitleBox);
+  heroBrand.append(logoWell, heroTitleBox);
 
-  const heroLangBtn = document.createElement('button');
-  heroLangBtn.type = 'button';
-  heroLangBtn.className = 'fp-btn fp-btn-ghost fp-hero-lang-btn';
-  heroLangBtn.addEventListener('click', () => {
-    cycleLocalePreference();
+  const heroActions = document.createElement('div');
+  heroActions.className = 'fp-hero-actions';
+
+  const heroAppearanceBtn = document.createElement('button');
+  heroAppearanceBtn.type = 'button';
+  heroAppearanceBtn.className = 'fp-btn fp-btn-tonal fp-btn-appearance';
+  heroAppearanceBtn.setAttribute('aria-haspopup', 'dialog');
+  heroAppearanceBtn.setAttribute('aria-expanded', 'false');
+  heroAppearanceBtn.setAttribute('aria-controls', 'fp-appearance-popover');
+  heroAppearanceBtn.appendChild(createIcon('palette', 15));
+  const heroAppearanceDot = document.createElement('span');
+  heroAppearanceDot.className = 'fp-appearance-dot';
+  heroAppearanceDot.setAttribute('aria-hidden', 'true');
+  heroAppearanceBtn.appendChild(heroAppearanceDot);
+  heroAppearanceBtn.addEventListener('click', () => {
+    callbacks.onOpenAppearance?.(heroAppearanceBtn);
   });
 
-  hero.append(heroBrand, heroLangBtn);
+  heroActions.append(heroAppearanceBtn);
+  heroTopRow.append(heroBrand, heroActions);
 
-  // 抽屉模式标题栏（仅在 drawer 模式显示）
+  const heroMetaRow = document.createElement('div');
+  heroMetaRow.className = 'fp-hero-meta';
+
+  const heroStatusChip = document.createElement('span');
+  heroStatusChip.className = 'fc-chip fc-chip--ok fp-hero-status-chip';
+  const heroStatusDot = document.createElement('span');
+  heroStatusDot.className = 'fc-chip__dot';
+  heroStatusDot.setAttribute('aria-hidden', 'true');
+  const heroStatusText = document.createElement('span');
+  heroStatusText.className = 'fc-tabular';
+  heroStatusChip.append(heroStatusDot, heroStatusText);
+
+  const heroFormatsText = document.createElement('span');
+  heroFormatsText.className = 'fp-hero-formats';
+
+  heroMetaRow.append(heroStatusChip, heroFormatsText);
+  heroInner.append(heroTopRow, heroMetaRow);
+  hero.append(heroInner);
+
+  // =========================================================================
+  // 2. 抽屉模式标题栏（仅在 drawer 模式显示）
+  // =========================================================================
   const drawerHeader = document.createElement('div');
   drawerHeader.className = 'fp-drawer-header';
+
+  const drawerTitleWrap = document.createElement('div');
+  drawerTitleWrap.className = 'fp-drawer-title-wrap';
   const drawerTitle = document.createElement('h2');
   drawerTitle.className = 'fp-drawer-title';
+  const drawerCountBadge = document.createElement('span');
+  drawerCountBadge.className = 'fc-chip fc-tabular';
+  drawerTitleWrap.append(drawerTitle, drawerCountBadge);
+
   const drawerCloseBtn = document.createElement('button');
   drawerCloseBtn.type = 'button';
-  drawerCloseBtn.className = 'fp-btn fp-btn-ghost fp-btn-icon';
-  drawerCloseBtn.textContent = '✕';
+  drawerCloseBtn.className = 'fc-icon-btn fc-icon-btn--tonal';
+  drawerCloseBtn.appendChild(createIcon('close', 16));
   drawerCloseBtn.addEventListener('click', () => callbacks.onCloseDrawer?.());
-  drawerHeader.append(drawerTitle, drawerCloseBtn);
+  drawerHeader.append(drawerTitleWrap, drawerCloseBtn);
 
-  // 快捷打开区：路径输入 + 本地文件选择 + 拖拽提示
+  // =========================================================================
+  // 3. 快捷打开卡片（路径直达 + 本地选择与拖拽）
+  // =========================================================================
   const quickOpenCard = document.createElement('section');
-  quickOpenCard.className = 'fp-quick-open';
+  quickOpenCard.className = 'fp-quick-open fc-card';
 
   const pathForm = document.createElement('form');
   pathForm.className = 'fp-path-form';
 
+  const pathLabel = document.createElement('label');
+  pathLabel.className = 'fc-sr-only';
+  pathLabel.htmlFor = `${uidPrefix}-path-input`;
+
+  const pathShell = document.createElement('div');
+  pathShell.className = 'fp-path-shell';
+
   const pathInput = document.createElement('input');
+  pathInput.id = `${uidPrefix}-path-input`;
   pathInput.type = 'text';
   pathInput.className = 'fp-input fp-path-input';
 
   const pathSubmitBtn = document.createElement('button');
   pathSubmitBtn.type = 'submit';
-  pathSubmitBtn.className = 'fp-btn fp-btn-primary';
+  pathSubmitBtn.className = 'fp-btn fp-btn-primary fp-path-submit';
 
-  pathForm.append(pathInput, pathSubmitBtn);
+  pathShell.append(pathInput, pathSubmitBtn);
+  pathForm.append(pathLabel, pathShell);
   pathForm.addEventListener('submit', (e) => {
     e.preventDefault();
     const target = pathInput.value.trim();
@@ -185,7 +251,10 @@ export function createWorkspaceBrowser(
 
   const pickFileBtn = document.createElement('button');
   pickFileBtn.type = 'button';
-  pickFileBtn.className = 'fp-btn fp-btn-secondary';
+  pickFileBtn.className = 'fp-btn fp-btn-tonal fp-pick-btn';
+  pickFileBtn.appendChild(createIcon('upload', 14));
+  const pickFileText = document.createElement('span');
+  pickFileBtn.appendChild(pickFileText);
   pickFileBtn.addEventListener('click', () => hiddenFileInput.click());
 
   const dragTip = document.createElement('span');
@@ -194,15 +263,41 @@ export function createWorkspaceBrowser(
   localActionsRow.append(hiddenFileInput, pickFileBtn, dragTip);
   quickOpenCard.append(pathForm, localActionsRow);
 
-  // 工作区列表区：过滤标签 + 搜索 + 刷新
+  // =========================================================================
+  // 4. 工作区列表卡片（头部 + 筛选 Tablist + 搜索 + 分组文件行）
+  // =========================================================================
   const listSection = document.createElement('section');
-  listSection.className = 'fp-list-section';
+  listSection.className = 'fp-list-section fc-card';
 
   const listHeader = document.createElement('div');
   listHeader.className = 'fp-list-controls';
 
+  const listTopBar = document.createElement('div');
+  listTopBar.className = 'fp-list-topbar';
+
+  const listTitleGroup = document.createElement('div');
+  listTitleGroup.className = 'fp-list-title-group';
+  const listTitleIcon = createIcon('folder', 16);
+  listTitleIcon.classList.add('fc-card-header__icon');
+  const listHeading = document.createElement('h2');
+  listHeading.className = 'fc-card-header__title';
+  const listCountPill = document.createElement('span');
+  listCountPill.className = 'fc-chip fc-tabular fp-list-count-pill';
+  listTitleGroup.append(listTitleIcon, listHeading, listCountPill);
+
+  const refreshListBtn = document.createElement('button');
+  refreshListBtn.type = 'button';
+  refreshListBtn.className = 'fp-btn fp-btn-tonal fp-btn-compact';
+  const refreshListIcon = createIcon('refresh', 14);
+  const refreshListText = document.createElement('span');
+  refreshListBtn.append(refreshListIcon, refreshListText);
+  refreshListBtn.addEventListener('click', () => callbacks.onRefreshList());
+
+  listTopBar.append(listTitleGroup, refreshListBtn);
+
   const filterTabs = document.createElement('div');
-  filterTabs.className = 'fp-filter-tabs';
+  filterTabs.className = 'fp-filter-tabs fc-tablist';
+  filterTabs.setAttribute('role', 'tablist');
 
   const getFilterLabel = (key: BrowserKindFilter): string => {
     switch (key) {
@@ -224,25 +319,48 @@ export function createWorkspaceBrowser(
   };
 
   const filterKeys: BrowserKindFilter[] = ['all', 'ppt', 'word', 'excel', 'pdf', 'mp4', 'html'];
+  const filterButtons = new Map<
+    BrowserKindFilter,
+    { btn: HTMLButtonElement; label: HTMLSpanElement; count: HTMLSpanElement }
+  >();
 
-  const filterButtons = new Map<BrowserKindFilter, HTMLButtonElement>();
   for (const key of filterKeys) {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'fp-filter-tab';
-    btn.textContent = getFilterLabel(key);
+    btn.className = 'fc-tab';
+    btn.setAttribute('role', 'tab');
+    btn.setAttribute('aria-selected', String(key === currentFilter));
+
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = getFilterLabel(key);
+    const countSpan = document.createElement('span');
+    countSpan.className = 'fc-tab__count';
+    countSpan.textContent = '0';
+
+    btn.append(labelSpan, countSpan);
     btn.addEventListener('click', () => {
       currentFilter = key;
+      btn.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       renderFileList();
     });
-    filterButtons.set(key, btn);
+    filterButtons.set(key, { btn, label: labelSpan, count: countSpan });
     filterTabs.appendChild(btn);
   }
 
-  const searchAndRefresh = document.createElement('div');
-  searchAndRefresh.className = 'fp-list-search-row';
+  const stopTablistKeyboard = attachTablistKeyboard(filterTabs);
+
+  const searchWrap = document.createElement('div');
+  searchWrap.className = 'fp-list-search-wrap';
+
+  const searchLabel = document.createElement('label');
+  searchLabel.className = 'fc-sr-only';
+  searchLabel.htmlFor = `${uidPrefix}-filter-search`;
+
+  const searchIcon = createIcon('search', 15);
+  searchIcon.classList.add('fp-list-search-icon');
 
   const filterSearchInput = document.createElement('input');
+  filterSearchInput.id = `${uidPrefix}-filter-search`;
   filterSearchInput.type = 'search';
   filterSearchInput.className = 'fp-input fp-list-search';
   filterSearchInput.addEventListener('input', () => {
@@ -250,13 +368,8 @@ export function createWorkspaceBrowser(
     renderFileList();
   });
 
-  const refreshListBtn = document.createElement('button');
-  refreshListBtn.type = 'button';
-  refreshListBtn.className = 'fp-btn fp-btn-ghost';
-  refreshListBtn.addEventListener('click', () => callbacks.onRefreshList());
-
-  searchAndRefresh.append(filterSearchInput, refreshListBtn);
-  listHeader.append(filterTabs, searchAndRefresh);
+  searchWrap.append(searchLabel, searchIcon, filterSearchInput);
+  listHeader.append(listTopBar, filterTabs, searchWrap);
 
   const listBody = document.createElement('div');
   listBody.className = 'fp-file-list';
@@ -278,11 +391,21 @@ export function createWorkspaceBrowser(
     for (const file of latestState.files) {
       counts[file.kind] += 1;
     }
+    listCountPill.textContent = String(counts.all);
+    drawerCountBadge.textContent = String(counts.all);
+
     for (const key of filterKeys) {
-      const btn = filterButtons.get(key);
-      if (!btn) continue;
-      btn.textContent = `${getFilterLabel(key)} (${counts[key]})`;
-      btn.classList.toggle('is-active', currentFilter === key);
+      const entry = filterButtons.get(key);
+      if (!entry) continue;
+      entry.label.textContent = getFilterLabel(key);
+      entry.count.textContent = String(counts[key]);
+      const isSelected = currentFilter === key;
+      entry.btn.setAttribute('aria-selected', String(isSelected));
+      entry.btn.toggleAttribute('focusgroupstart', isSelected);
+      entry.btn.classList.toggle('is-active', isSelected);
+      if (!('focusGroup' in HTMLElement.prototype)) {
+        entry.btn.tabIndex = isSelected ? 0 : -1;
+      }
     }
   }
 
@@ -324,8 +447,8 @@ export function createWorkspaceBrowser(
       emptyEl.className = 'fp-list-empty';
       if (latestState.files.length === 0) {
         emptyEl.textContent = tr(
-          '当前工作区暂未扫描到 .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html 文件，可使用上方路径输入或直接拖拽文件打开。',
-          'No .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html files found in the workspace. Paste a path above or drag & drop a file.',
+          '工作区暂未扫描到支持的文件，可使用上方路径直达或直接拖拽文件到窗口。',
+          'No previewable files found in workspace. Paste a path above or drop a file here.',
         );
       } else {
         emptyEl.textContent = tr('没有符合当前筛选条件的文件。', 'No files match the current filter.');
@@ -336,19 +459,22 @@ export function createWorkspaceBrowser(
 
     const fragment = document.createDocumentFragment();
     for (const file of filtered) {
+      const isCurrent = Boolean(latestState.activePath && latestState.activePath === file.path);
+
       const itemBtn = document.createElement('button');
       itemBtn.type = 'button';
       itemBtn.className = 'fp-file-item';
-      if (latestState.activePath && latestState.activePath === file.path) {
+      if (isCurrent) {
         itemBtn.classList.add('is-current');
+        itemBtn.setAttribute('aria-current', 'true');
       }
       itemBtn.title = file.path;
       itemBtn.addEventListener('click', () => callbacks.onOpenDiskFile(file.path));
 
-      const badge = document.createElement('span');
-      badge.className = 'fp-kind-badge';
-      badge.dataset.kind = file.kind;
-      badge.textContent = getKindShortLabel(file.kind, file.ext);
+      const glyphWell = document.createElement('span');
+      glyphWell.className = 'fc-glyph-well fc-glyph-well--lg fp-file-glyph';
+      glyphWell.dataset.kind = file.kind;
+      glyphWell.textContent = getKindShortLabel(file.kind, file.ext);
 
       const info = document.createElement('div');
       info.className = 'fp-file-info';
@@ -358,57 +484,92 @@ export function createWorkspaceBrowser(
 
       const nameEl = document.createElement('div');
       nameEl.className = 'fp-file-name';
-      nameEl.textContent = file.name;
+      renderTruncatableFileName(nameEl, file.name);
       nameRow.appendChild(nameEl);
 
       if ((file.kind === 'pdf' || file.kind === 'mp4') && file.size > LARGE_PDF_THRESHOLD_BYTES) {
         const largeBadge = document.createElement('span');
-        largeBadge.className = 'fp-large-pdf-badge';
-        largeBadge.textContent = tr('>20MB 流式可预览', '>20MB Streaming');
+        largeBadge.className = 'fp-status-pill fp-status-pill--warn';
+        largeBadge.textContent = tr('>20MB 流式', '>20MB Stream');
         nameRow.appendChild(largeBadge);
       }
 
       const metaEl = document.createElement('div');
-      metaEl.className = 'fp-file-meta';
+      metaEl.className = 'fp-file-meta fc-tabular';
       const timeText = formatModifiedTime(file.mtimeMs);
       metaEl.textContent = timeText
         ? `${file.relPath} · ${formatBytes(file.size)} · ${timeText}`
         : `${file.relPath} · ${formatBytes(file.size)}`;
 
       info.append(nameRow, metaEl);
-      itemBtn.append(badge, info);
+      itemBtn.append(glyphWell, info);
+
+      if (isCurrent) {
+        const selBadge = document.createElement('span');
+        selBadge.className = 'fc-selection-badge';
+        selBadge.setAttribute('aria-hidden', 'true');
+        selBadge.appendChild(createIcon('check', 13, 2.5));
+        itemBtn.appendChild(selBadge);
+      }
+
       fragment.appendChild(itemBtn);
     }
     listBody.appendChild(fragment);
   }
 
   function applyLocaleText(): void {
-    const langDisplay = getLocaleToggleDisplay(getLocalePreference(), getCurrentLocale());
-    heroLangBtn.textContent = langDisplay.label;
-    heroLangBtn.title = langDisplay.title;
+    const appearanceTitle = tr('外观、明暗主题与语言设置', 'Appearance, theme & language');
+    heroAppearanceBtn.title = appearanceTitle;
+    heroAppearanceBtn.setAttribute('aria-label', appearanceTitle);
 
     heroSub.textContent = tr(
-      '侧边栏本地文档高保真预览 · 支持 .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html',
-      'High-fidelity sidebar preview · .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html',
+      '高保真侧边栏文档预览工作台',
+      'High-fidelity sidebar document preview workspace',
     );
-    drawerTitle.textContent = tr('切换工作区文档', 'Workspace Files');
-    drawerCloseBtn.title = tr('关闭文件列表', 'Close file list');
-    pathInput.placeholder = tr(
-      '输入本地文件路径或 file:// URI，回车打开...',
-      'Enter local file path or file:// URI and press Enter...',
+
+    if (latestState.loading) {
+      heroStatusText.textContent = tr('扫描中...', 'Scanning...');
+      heroStatusChip.className = 'fc-chip fp-hero-status-chip';
+    } else {
+      heroStatusText.textContent = tr(
+        `${latestState.files.length} 个工作区文档`,
+        `${latestState.files.length} workspace files`,
+      );
+      heroStatusChip.className = 'fc-chip fc-chip--ok fp-hero-status-chip';
+    }
+    heroFormatsText.textContent = 'PPTX · DOCX · XLSX · PDF · MP4 · HTML';
+
+    drawerTitle.textContent = tr('工作区文档', 'Workspace Files');
+    const closeTitle = tr('关闭文件列表', 'Close file list');
+    drawerCloseBtn.title = closeTitle;
+    drawerCloseBtn.setAttribute('aria-label', closeTitle);
+
+    const pathPlaceholder = tr(
+      '输入文件路径或 file:// URI，回车打开...',
+      'Enter file path or file:// URI...',
     );
+    pathLabel.textContent = tr('输入本地文件路径', 'Enter local file path');
+    pathInput.placeholder = pathPlaceholder;
     pathInput.setAttribute('aria-label', tr('输入本地文件路径', 'Enter local file path'));
     pathSubmitBtn.textContent = tr('打开', 'Open');
-    pickFileBtn.textContent = tr('选择电脑本地文件', 'Choose Local File');
+
+    pickFileText.textContent = tr('选择本地文件', 'Choose File');
     dragTip.textContent = tr(
-      '或直接拖拽 .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html 到此窗口',
-      'or drag & drop .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html files here',
+      '或直接拖拽文件到此面板预览',
+      'or drop a file anywhere here',
     );
-    filterSearchInput.placeholder = tr('按文件名或路径筛选...', 'Filter by file name or path...');
+
+    listHeading.textContent = tr('可预览文档', 'Documents');
+    filterTabs.setAttribute('aria-label', tr('按文件类型筛选', 'Filter by document kind'));
+    searchLabel.textContent = tr('筛选工作区文件', 'Filter workspace files');
+    filterSearchInput.placeholder = tr('按文件名或路径筛选...', 'Filter by name or path...');
     filterSearchInput.setAttribute('aria-label', tr('筛选工作区文件', 'Filter workspace files'));
-    refreshListBtn.textContent = latestState.loading
-      ? tr('扫描中...', 'Scanning...')
-      : tr('刷新列表', 'Refresh');
+
+    refreshListText.textContent = latestState.loading
+      ? tr('扫描中', 'Scanning')
+      : tr('刷新', 'Refresh');
+    refreshListBtn.title = tr('重新扫描工作区文件', 'Rescan workspace files');
+    refreshListIcon.classList.toggle('is-spinning', latestState.loading);
   }
 
   applyLocaleText();
@@ -422,6 +583,7 @@ export function createWorkspaceBrowser(
     root.dataset.mode = state.mode;
     hero.hidden = state.mode !== 'welcome';
     drawerHeader.hidden = state.mode !== 'drawer';
+    listTopBar.hidden = state.mode === 'drawer';
     refreshListBtn.disabled = state.loading;
     applyLocaleText();
     renderFileList();
@@ -433,6 +595,7 @@ export function createWorkspaceBrowser(
 
   function destroy(): void {
     stopLocaleSync();
+    stopTablistKeyboard();
     root.remove();
   }
 

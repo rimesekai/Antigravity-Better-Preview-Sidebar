@@ -1,5 +1,6 @@
 import { copyTextToClipboard } from '../utils/clipboard';
 import { onLocaleChange, tr } from '../utils/i18n';
+import { createIcon } from '../utils/icons';
 
 /**
  * 悬浮选区工具条初始化配置。
@@ -157,11 +158,16 @@ export function createSelectionToolbar(
   barEl.hidden = true;
 
   const metaEl = document.createElement('span');
-  metaEl.className = 'fp-sel-meta';
+  metaEl.className = 'fp-sel-meta fc-tabular';
 
   const copyBtn = document.createElement('button');
   copyBtn.type = 'button';
   copyBtn.className = 'fp-sel-btn fp-sel-btn-primary fp-sel-btn-copy';
+  const copyIcon = createIcon('copy', 13);
+  const checkIcon = createIcon('check', 13, 2.2);
+  checkIcon.style.display = 'none';
+  const copyLabelEl = document.createElement('span');
+  copyBtn.append(copyIcon, checkIcon, copyLabelEl);
 
   barEl.append(metaEl, copyBtn);
   hostEl.appendChild(barEl);
@@ -176,6 +182,13 @@ export function createSelectionToolbar(
   let customSentLabel = false;
   let pendingCopyRange: Range | null = null;
 
+  const setCopyVisualState = (copied: boolean): void => {
+    copyIcon.style.display = copied ? 'none' : '';
+    checkIcon.style.display = copied ? '' : 'none';
+    copyBtn.classList.toggle('is-copied', copied);
+    copyLabelEl.textContent = copied ? tr('已复制', 'Copied') : tr('复制', 'Copy');
+  };
+
   const applyLocaleText = (): void => {
     barEl.setAttribute('aria-label', tr('选中文本操作', 'Selected text actions'));
     metaEl.title = tr(
@@ -183,11 +196,7 @@ export function createSelectionToolbar(
       'Press Ctrl+C or click Copy to copy selected text',
     );
     copyBtn.title = tr('复制选中文字到剪贴板', 'Copy selected text to clipboard');
-    if (copyResetTimer === null) {
-      copyBtn.textContent = tr('复制', 'Copy');
-    } else {
-      copyBtn.textContent = tr('已复制', 'Copied');
-    }
+    setCopyVisualState(copyResetTimer !== null);
     if (!customSentLabel) {
       sentLabel = getDefaultSentLabel();
     }
@@ -472,8 +481,7 @@ export function createSelectionToolbar(
       clearTimeout(copyResetTimer);
       copyResetTimer = null;
     }
-    copyBtn.textContent = tr('复制', 'Copy');
-    copyBtn.classList.remove('is-copied');
+    setCopyVisualState(false);
   };
 
   // 阻止鼠标按下工具条时清除文档选区或触发宿主 mousedown 隐藏逻辑
@@ -516,13 +524,11 @@ export function createSelectionToolbar(
 
     if (ok) {
       resetCopyLabel();
-      copyBtn.textContent = tr('已复制', 'Copied');
-      copyBtn.classList.add('is-copied');
+      setCopyVisualState(true);
       copyResetTimer = setTimeout(() => {
         copyResetTimer = null;
         if (!destroyed) {
-          copyBtn.textContent = tr('复制', 'Copy');
-          copyBtn.classList.remove('is-copied');
+          setCopyVisualState(false);
         }
       }, COPY_FEEDBACK_MS);
       showSentMark();

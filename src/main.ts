@@ -1,3 +1,4 @@
+import './styles/tokens.css';
 import './styles.css';
 import './renderers/renderers.css';
 import type {
@@ -32,11 +33,13 @@ import {
   startThemeSync,
   subscribeWorkspaceChanges,
 } from './services/themeSync';
+import { createAppearancePopover } from './components/AppearancePopover';
 import { createSelectionToolbar } from './components/SelectionToolbar';
 import { createToolbar, type ToolbarFileMeta } from './components/Toolbar';
 import { createWorkspaceBrowser } from './components/WorkspaceBrowser';
 import { copyTextToClipboard } from './utils/clipboard';
 import { inferFallbackFileStat } from './utils/fileMeta';
+import { createIcon } from './utils/icons';
 import {
   cycleLocalePreference,
   getLocalePreference,
@@ -151,8 +154,11 @@ function bootstrap(): void {
   const loadingOverlay = document.createElement('div');
   loadingOverlay.className = 'fp-loading-overlay';
   loadingOverlay.hidden = true;
-  loadingOverlay.innerHTML = `<div class="fp-spinner" aria-hidden="true"></div><div class="fp-loading-text">${tr('正在加载并渲染文档...', 'Loading and rendering document...')}</div>`;
-  const loadingTextEl = loadingOverlay.querySelector('.fp-loading-text') as HTMLElement;
+  const loadingCard = document.createElement('div');
+  loadingCard.className = 'fp-loading-card';
+  loadingCard.innerHTML = `<div class="fp-spinner" aria-hidden="true"></div><div class="fp-loading-text">${tr('正在加载并渲染文档...', 'Loading and rendering document...')}</div>`;
+  loadingOverlay.appendChild(loadingCard);
+  const loadingTextEl = loadingCard.querySelector('.fp-loading-text') as HTMLElement;
 
   const errorCardHost = document.createElement('div');
   errorCardHost.className = 'fp-error-host';
@@ -166,15 +172,15 @@ function bootstrap(): void {
 
   previewHost.append(rendererContainer, loadingOverlay, errorCardHost, toastEl);
 
-  // 文件列表抽屉
-  const drawerBackdrop = document.createElement('div');
-  drawerBackdrop.className = 'fp-drawer-backdrop';
-  drawerBackdrop.hidden = true;
+  // 文件列表抽屉（采用原生 <dialog> Top Layer 实现，自动隔离背景与归还焦点）
+  const drawerDialog = document.createElement('dialog');
+  drawerDialog.id = 'fp-drawer-dialog';
+  drawerDialog.className = 'fp-drawer-dialog';
+  drawerDialog.setAttribute('aria-label', tr('工作区文档列表', 'Workspace file list'));
 
   const drawerPanel = document.createElement('aside');
   drawerPanel.className = 'fp-drawer-panel';
-  drawerPanel.setAttribute('aria-label', tr('工作区文档列表', 'Workspace file list'));
-  drawerPanel.hidden = true;
+  drawerDialog.appendChild(drawerPanel);
 
   // 全屏拖拽遮罩
   const dropOverlay = document.createElement('div');
@@ -182,15 +188,18 @@ function bootstrap(): void {
   dropOverlay.hidden = true;
   const dropBox = document.createElement('div');
   dropBox.className = 'fp-drop-box';
+  const dropIconWell = document.createElement('div');
+  dropIconWell.className = 'fp-drop-icon-well';
+  dropIconWell.appendChild(createIcon('upload', 24));
   const dropTitleEl = document.createElement('div');
   dropTitleEl.className = 'fp-drop-title';
   const dropSubEl = document.createElement('div');
   dropSubEl.className = 'fp-drop-sub';
-  dropBox.append(dropTitleEl, dropSubEl);
+  dropBox.append(dropIconWell, dropTitleEl, dropSubEl);
   dropOverlay.appendChild(dropBox);
 
   const applyStaticShellLocale = (): void => {
-    drawerPanel.setAttribute('aria-label', tr('工作区文档列表', 'Workspace file list'));
+    drawerDialog.setAttribute('aria-label', tr('工作区文档列表', 'Workspace file list'));
     dropTitleEl.textContent = tr('松开鼠标即可预览', 'Drop file to preview');
     dropSubEl.textContent = tr(
       '支持 .pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html / .htm 本地文件',
@@ -205,9 +214,11 @@ function bootstrap(): void {
   fallbackFileInput.accept = '.pptx,.docx,.xlsx,.xls,.csv,.tsv,.pdf,.mp4,.html,.htm';
   fallbackFileInput.hidden = true;
 
-  mainStage.append(welcomeHost, previewHost, drawerBackdrop, drawerPanel);
-  shell.append(toolbarHost, mainStage, dropOverlay, fallbackFileInput);
+  mainStage.append(welcomeHost, previewHost);
+  shell.append(toolbarHost, mainStage, drawerDialog, dropOverlay, fallbackFileInput);
   appRoot.appendChild(shell);
+
+  const appearancePopover = createAppearancePopover(shell);
 
   // 应用状态
   let viewMode: 'welcome' | 'preview' = 'welcome';
@@ -262,6 +273,7 @@ function bootstrap(): void {
     onToggleDrawer: () => {
       drawerOpen = !drawerOpen;
       if (drawerOpen) {
+        appearancePopover.close();
         selectionToolbar.hide();
         selectionToolbar.clearSentMark();
       }
@@ -296,6 +308,9 @@ function bootstrap(): void {
     onCycleTheme: () => {
       cycleThemePreference();
       syncUi();
+    },
+    onOpenAppearance: (anchorEl) => {
+      appearancePopover.toggle(anchorEl);
     },
     onCycleLocale: () => {
       cycleLocalePreference();
@@ -343,10 +358,12 @@ function bootstrap(): void {
 
   const browserCallbacks = {
     onOpenDiskFile: (filePath: string) => {
+      appearancePopover.close();
       drawerOpen = false;
       void openDiskFile(filePath);
     },
     onOpenLocalFile: (file: File) => {
+      appearancePopover.close();
       drawerOpen = false;
       void openLocalDroppedFile(file);
     },
@@ -357,18 +374,24 @@ function bootstrap(): void {
       drawerOpen = false;
       syncUi();
     },
+    onOpenAppearance: (anchorEl: HTMLElement) => {
+      appearancePopover.toggle(anchorEl);
+    },
   };
 
   const welcomeBrowser = createWorkspaceBrowser(welcomeHost, browserCallbacks);
   const drawerBrowser = createWorkspaceBrowser(drawerPanel, browserCallbacks);
 
-  drawerBackdrop.addEventListener('click', () => {
-    drawerOpen = false;
-    syncUi();
+  drawerDialog.addEventListener('click', (e) => {
+    // Light-dismiss：点击 dialog 遮罩区（抽屉主体之外）自动关闭
+    if (e.target === drawerDialog) {
+      drawerOpen = false;
+      syncUi();
+    }
   });
 
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && drawerOpen) {
+  drawerDialog.addEventListener('close', () => {
+    if (drawerOpen) {
       drawerOpen = false;
       syncUi();
     }
@@ -391,21 +414,31 @@ function bootstrap(): void {
 
     errorCardHost.innerHTML = '';
     const card = document.createElement('div');
-    card.className = 'fp-error-card';
+    card.className = 'fp-error-card fc-card';
+
+    const headRow = document.createElement('div');
+    headRow.className = 'fp-error-head';
+
+    const iconWell = document.createElement('span');
+    iconWell.className = 'fp-error-icon-well';
+    iconWell.setAttribute('aria-hidden', 'true');
+    iconWell.appendChild(createIcon('alert', 20));
 
     const titleEl = document.createElement('h2');
     titleEl.className = 'fp-error-title';
     titleEl.textContent = activeError.title;
 
+    headRow.append(iconWell, titleEl);
+
     const msgEl = document.createElement('p');
     msgEl.className = 'fp-error-message';
     msgEl.textContent = activeError.message;
 
-    card.append(titleEl, msgEl);
+    card.append(headRow, msgEl);
 
     if (activeError.code) {
       const codeEl = document.createElement('div');
-      codeEl.className = 'fp-error-code';
+      codeEl.className = 'fp-error-code fc-mono';
       codeEl.textContent = tr(`错误代码：${activeError.code}`, `Error code: ${activeError.code}`);
       card.appendChild(codeEl);
     }
@@ -434,7 +467,7 @@ function bootstrap(): void {
       const retryPath = activeError.retryPath;
       const retryBtn = document.createElement('button');
       retryBtn.type = 'button';
-      retryBtn.className = 'fp-btn fp-btn-secondary';
+      retryBtn.className = 'fp-btn fp-btn-tonal';
       retryBtn.textContent = tr('重试加载', 'Retry');
       retryBtn.addEventListener('click', () => {
         void openDiskFile(retryPath);
@@ -475,14 +508,32 @@ function bootstrap(): void {
     };
   }
 
+  function syncDrawerDialog(showDrawer: boolean): void {
+    const supportsModal = typeof drawerDialog.showModal === 'function';
+    if (showDrawer) {
+      if (supportsModal) {
+        if (!drawerDialog.open) {
+          drawerDialog.showModal();
+        }
+      } else {
+        drawerDialog.setAttribute('open', '');
+      }
+    } else if (drawerDialog.open || drawerDialog.hasAttribute('open')) {
+      if (typeof drawerDialog.close === 'function') {
+        drawerDialog.close();
+      } else {
+        drawerDialog.removeAttribute('open');
+      }
+    }
+  }
+
   function syncUi(): void {
     welcomeHost.hidden = viewMode !== 'welcome';
     previewHost.hidden = viewMode !== 'preview';
     loadingOverlay.hidden = !isLoading;
 
     const showDrawer = viewMode === 'preview' && drawerOpen;
-    drawerBackdrop.hidden = !showDrawer;
-    drawerPanel.hidden = !showDrawer;
+    syncDrawerDialog(showDrawer);
 
     renderErrorCard();
 
@@ -977,6 +1028,7 @@ function bootstrap(): void {
     stopThemeSync();
     stopLocaleSync();
     stopWorkspaceSync();
+    appearancePopover.destroy();
     selectionToolbar.destroy();
     destroyActiveRenderer();
     toolbar.destroy();

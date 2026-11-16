@@ -3,12 +3,38 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <script>
+    (function () {
+      try {
+        var root = document.documentElement;
+        var themePref = localStorage.getItem('file-preview:theme-preference');
+        var meta = document.querySelector('meta[name="color-scheme"]');
+        if (themePref === 'light' || themePref === 'dark') {
+          if (meta) meta.setAttribute('content', themePref);
+          root.dataset.themeOverride = themePref;
+          root.dataset.theme = themePref;
+          root.dataset.resolvedTheme = themePref;
+        }
+        var rawPrefs = localStorage.getItem('file-preview:appearance-prefs');
+        if (rawPrefs) {
+          var prefs = JSON.parse(rawPrefs);
+          if (prefs && typeof prefs === 'object') {
+            if (prefs.seedId) root.dataset.seedId = String(prefs.seedId);
+            if (prefs.colorStyle) root.dataset.colorStyle = String(prefs.colorStyle);
+            if (typeof prefs.pureBlack === 'boolean') root.dataset.pureBlack = String(prefs.pureBlack);
+            if (typeof prefs.liquidGlass === 'boolean') root.dataset.liquidGlass = String(prefs.liquidGlass);
+          }
+        }
+      } catch (e) {}
+    })();
+  </script>
   <title>File Preview</title>
     <link rel="stylesheet" href="/styles.css" />
   <script src="/preload.js"></script>
 </head>
 <body>
-  <div id="app"></div>
+  <div id="app"></div>
   <script src="/app.js"></script>
 </body>
 </html>

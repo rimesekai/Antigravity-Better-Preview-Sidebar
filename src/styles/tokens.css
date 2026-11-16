@@ -1,0 +1,353 @@
+/**
+ * File Preview Design Tokens
+ * 参考 D:/ui-resources/flclash-ui 设计系统规范：
+ * 1. 结构靠四层无边框明度台阶区分（page -> card -> block -> inset，及窗体 chrome），卡片默认无边框。
+ * 2. 90% 中性灰阶构筑阅读界面，高饱和色彩仅用于当前选中态、开关激活态、语义状态与核心主操作。
+ * 3. 深色模式逐级提亮（6 -> 15 -> 21 -> 27），并抬高文字对比度。
+ * 4. 所有计数、大小、页码、百分比等数字统一启用 tabular-nums。
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* ------------------------------------------------------------------
+   * 1. 种子色控制参数（默认 auto-pair：浅色经典蓝 / 深色暖琥珀）
+   * ------------------------------------------------------------------ */
+  --fc-seed-h: 212;
+  --fc-seed-s: 100%;
+  --fc-seed-l-light: 52%;
+  --fc-seed-l-dark: 63%;
+
+  /* 衍生模式偏移：vivid | tinted | soft | monochrome */
+  --fc-tint-strength: 0%;
+  --fc-primary-chroma-scale: 1;
+
+  /* ------------------------------------------------------------------
+   * 2. 品牌主色 (Primary & On-Primary)
+   * ------------------------------------------------------------------ */
+  --fc-primary-light: hsl(
+    var(--fc-seed-h) calc(var(--fc-seed-s) * var(--fc-primary-chroma-scale)) var(--fc-seed-l-light)
+  );
+  --fc-primary-dark: hsl(
+    var(--fc-seed-h) calc(var(--fc-seed-s) * var(--fc-primary-chroma-scale)) var(--fc-seed-l-dark)
+  );
+  --fc-primary: light-dark(var(--fc-primary-light), var(--fc-primary-dark));
+
+  --fc-on-primary-light: #ffffff;
+  --fc-on-primary-dark: #14110e;
+  --fc-on-primary: light-dark(var(--fc-on-primary-light), var(--fc-on-primary-dark));
+
+  /* 主色柔和容器（仅用于焦点装饰或状态角标，绝不铺满普通大卡片） */
+  --fc-primary-tint: color-mix(in oklab, var(--fc-primary) 12%, var(--fc-surface-card));
+  --fc-primary-tint-strong: color-mix(in oklab, var(--fc-primary) 18%, var(--fc-surface-card));
+
+  /* ------------------------------------------------------------------
+   * 3. 四层无边框表面层级 (page -> card -> block -> inset) + chrome
+   * ------------------------------------------------------------------ */
+  --fc-surface-page-light: color-mix(in oklab, #eff1f5 calc(100% - var(--fc-tint-strength)), var(--fc-primary));
+  --fc-surface-card-light: color-mix(in oklab, #fafbfd calc(100% - var(--fc-tint-strength) * 0.5), var(--fc-primary));
+  --fc-surface-block-light: color-mix(in oklab, #eef0f4 calc(100% - var(--fc-tint-strength)), var(--fc-primary));
+  --fc-surface-inset-light: color-mix(in oklab, #e3e6ec calc(100% - var(--fc-tint-strength)), var(--fc-primary));
+  --fc-surface-chrome-light: color-mix(in oklab, #e6e8ee calc(100% - var(--fc-tint-strength)), var(--fc-primary));
+
+  --fc-surface-page-dark: color-mix(in oklab, #121110 calc(100% - var(--fc-tint-strength)), var(--fc-primary));
+  --fc-surface-card-dark: color-mix(in oklab, #1e1c1a calc(100% - var(--fc-tint-strength) * 0.7), var(--fc-primary));
+  --fc-surface-block-dark: color-mix(in oklab, #2a2724 calc(100% - var(--fc-tint-strength) * 0.8), var(--fc-primary));
+  --fc-surface-inset-dark: color-mix(in oklab, #36322e calc(100% - var(--fc-tint-strength) * 0.8), var(--fc-primary));
+  --fc-surface-chrome-dark: color-mix(in oklab, #171614 calc(100% - var(--fc-tint-strength) * 0.7), var(--fc-primary));
+
+  --fc-surface-page: light-dark(var(--fc-surface-page-light), var(--fc-surface-page-dark));
+  --fc-surface-card: light-dark(var(--fc-surface-card-light), var(--fc-surface-card-dark));
+  --fc-surface-block: light-dark(var(--fc-surface-block-light), var(--fc-surface-block-dark));
+  --fc-surface-inset: light-dark(var(--fc-surface-inset-light), var(--fc-surface-inset-dark));
+  --fc-surface-chrome: light-dark(var(--fc-surface-chrome-light), var(--fc-surface-chrome-dark));
+  --fc-surface-floating: light-dark(var(--fc-surface-card-light), var(--fc-surface-block-dark));
+
+  /* ------------------------------------------------------------------
+   * 4. 文字层级与分割线
+   * ------------------------------------------------------------------ */
+  --fc-on-surface-light: #16181d;
+  --fc-on-surface-dark: #f5f4f2;
+  --fc-on-surface: light-dark(var(--fc-on-surface-light), var(--fc-on-surface-dark));
+
+  --fc-on-surface-variant-light: #606672;
+  --fc-on-surface-variant-dark: #a8a29c;
+  --fc-on-surface-variant: light-dark(var(--fc-on-surface-variant-light), var(--fc-on-surface-variant-dark));
+
+  --fc-outline-light: #8c93a0;
+  --fc-outline-dark: #7a746e;
+  --fc-outline: light-dark(var(--fc-outline-light), var(--fc-outline-dark));
+
+  /* 仅用于窗体 Chrome 边线、表格微网格与列表内分割线（onSurface 14% / 8%） */
+  --fc-divider: color-mix(in srgb, var(--fc-on-surface) 14%, transparent);
+  --fc-divider-subtle: color-mix(in srgb, var(--fc-on-surface) 8%, transparent);
+
+  /* 按压与悬停叠加层 (PressSurface: hover 4%, ink 10%) */
+  --fc-hover-overlay: color-mix(in srgb, var(--fc-on-surface) 5%, transparent);
+  --fc-press-overlay: color-mix(in srgb, var(--fc-on-surface) 11%, transparent);
+
+  /* ------------------------------------------------------------------
+   * 5. 语义状态色（独立于种子色）
+   * ------------------------------------------------------------------ */
+  --fc-success: light-dark(#15803d, #4ade80);
+  --fc-success-container: light-dark(#dcfce7, #144323);
+  --fc-on-success-container: light-dark(#064e1c, #bbf7d0);
+
+  --fc-warning: light-dark(#c25e00, #fb923c);
+  --fc-warning-container: light-dark(#ffedd5, #4d2509);
+  --fc-on-warning-container: light-dark(#7c2d12, #ffedd5);
+
+  --fc-error: light-dark(#dc2626, #f87171);
+  --fc-error-container: light-dark(#fee2e2, #521818);
+  --fc-on-error-container: light-dark(#7f1d1d, #fee2e2);
+
+  /* ------------------------------------------------------------------
+   * 6. 字体栈与排版
+   * ------------------------------------------------------------------ */
+  --fc-font-sans: "SF Pro Display", "SF Pro Text", "Inter", -apple-system, BlinkMacSystemFont,
+    "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --fc-font-mono: "SF Mono", "JetBrains Mono", "Cascadia Code", ui-monospace, Consolas, monospace;
+
+  /* ------------------------------------------------------------------
+   * 7. 连续大圆角刻度（针对侧边栏紧凑宽度按原比例调校）
+   * ------------------------------------------------------------------ */
+  --fc-radius-card: 24px;
+  --fc-radius-block: 16px;
+  --fc-radius-tab: 14px;
+  --fc-radius-badge: 10px;
+  --fc-radius-table-header: 10px;
+  --fc-radius-pill: 9999px;
+
+  /* ------------------------------------------------------------------
+   * 8. 多层校准柔影
+   * ------------------------------------------------------------------ */
+  --fc-shadow-e1-light:
+    0 0.5px 1px rgba(0, 0, 0, 0.04),
+    0 2px 6px rgba(0, 0, 0, 0.04),
+    0 10px 26px -6px rgba(0, 0, 0, 0.08);
+  --fc-shadow-e1-dark:
+    0 1px 2px rgba(0, 0, 0, 0.48),
+    0 10px 26px -6px rgba(0, 0, 0, 0.52);
+  --fc-shadow-e1: var(--fc-shadow-e1-light);
+
+  --fc-shadow-e2-light:
+    0 1px 3px rgba(0, 0, 0, 0.06),
+    0 10px 24px rgba(0, 0, 0, 0.09),
+    0 28px 56px -12px rgba(0, 0, 0, 0.2);
+  --fc-shadow-e2-dark:
+    0 2px 6px rgba(0, 0, 0, 0.52),
+    0 28px 56px -12px rgba(0, 0, 0, 0.72);
+  --fc-shadow-e2: var(--fc-shadow-e2-light);
+
+  /* ------------------------------------------------------------------
+   * 9. 动效曲线与时长
+   * ------------------------------------------------------------------ */
+  --fc-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --fc-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --fc-duration-fast: 150ms;
+  --fc-duration-normal: 250ms;
+  --fc-duration-slow: 380ms;
+
+  /* Liquid Glass 液态毛玻璃浮层变量 */
+  --fc-glass-bg: color-mix(in srgb, var(--fc-surface-floating) 76%, transparent);
+  --fc-glass-blur: blur(22px) saturate(175%);
+  --fc-glass-edge: color-mix(in srgb, #ffffff 34%, transparent);
+
+  /* 原生控件与滚动条适配 */
+  accent-color: var(--fc-primary);
+  --fc-scrollbar-thumb: color-mix(in srgb, var(--fc-on-surface) 24%, transparent);
+  --fc-scrollbar-track: transparent;
+  scrollbar-color: var(--fc-scrollbar-thumb) var(--fc-scrollbar-track);
+
+  /* ------------------------------------------------------------------
+   * 10. 旧版 --fp-* 变量语义映射（保障渲染器与扩展兼容性）
+   * ------------------------------------------------------------------ */
+  --fp-bg: var(--fc-surface-page);
+  --fp-fg: var(--fc-on-surface);
+  --fp-card: var(--fc-surface-card);
+  --fp-secondary: var(--fc-surface-block);
+  --fp-muted: var(--fc-surface-block);
+  --fp-muted-fg: var(--fc-on-surface-variant);
+  --fp-primary: var(--fc-primary);
+  --fp-border: var(--fc-divider-subtle);
+  --fp-error: var(--fc-error);
+  --fp-font: var(--fc-font-sans);
+  --fp-mono: var(--fc-font-mono);
+  --fp-hover: var(--fc-hover-overlay);
+  --fp-active-soft: var(--fc-primary-tint);
+  --fp-shadow: var(--fc-shadow-e2);
+}
+
+/* 遵循 modern-web-guidance `dark-mode-toggle`：将 <meta name="color-scheme"> 与宿主解析结果同步映射到 :root */
+:root:has(> head > meta[name="color-scheme"][content="dark"]),
+:root[data-resolved-theme="dark"] {
+  color-scheme: dark;
+  --fc-shadow-e1: var(--fc-shadow-e1-dark);
+  --fc-shadow-e2: var(--fc-shadow-e2-dark);
+  --fc-glass-bg: color-mix(in srgb, var(--fc-surface-inset) 68%, transparent);
+  --fc-glass-edge: color-mix(in srgb, #ffffff 12%, transparent);
+}
+
+:root:has(> head > meta[name="color-scheme"][content="light"]),
+:root[data-resolved-theme="light"] {
+  color-scheme: light;
+  --fc-shadow-e1: var(--fc-shadow-e1-light);
+  --fc-shadow-e2: var(--fc-shadow-e2-light);
+  --fc-glass-bg: color-mix(in srgb, var(--fc-surface-floating) 76%, transparent);
+  --fc-glass-edge: color-mix(in srgb, #ffffff 34%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:has(> head > meta[name="color-scheme"][content="light dark"]):not([data-resolved-theme="light"]) {
+    --fc-shadow-e1: var(--fc-shadow-e1-dark);
+    --fc-shadow-e2: var(--fc-shadow-e2-dark);
+    --fc-glass-bg: color-mix(in srgb, var(--fc-surface-inset) 68%, transparent);
+    --fc-glass-edge: color-mix(in srgb, #ffffff 12%, transparent);
+  }
+
+  :root:has(> head > meta[name="color-scheme"][content="light dark"]):not([data-resolved-theme="light"]):is([data-seed-id="auto-pair"], :not([data-seed-id])) {
+    --fc-seed-h: 32;
+    --fc-seed-s: 90%;
+    --fc-seed-l-light: 48%;
+    --fc-seed-l-dark: 62%;
+  }
+}
+
+/* ------------------------------------------------------------------
+ * 种子色预设映射（配合首屏内联脚本实现 0ms 无闪烁着色）
+ * ------------------------------------------------------------------ */
+:root[data-seed-id="auto-pair"][data-resolved-theme="dark"],
+:root:not([data-seed-id])[data-resolved-theme="dark"],
+:root[data-seed-id="auto-pair"]:has(> head > meta[name="color-scheme"][content="dark"]),
+:root:not([data-seed-id]):has(> head > meta[name="color-scheme"][content="dark"]) {
+  --fc-seed-h: 32;
+  --fc-seed-s: 90%;
+  --fc-seed-l-light: 48%;
+  --fc-seed-l-dark: 62%;
+}
+
+:root[data-seed-id="azure"] {
+  --fc-seed-h: 212;
+  --fc-seed-s: 100%;
+  --fc-seed-l-light: 52%;
+  --fc-seed-l-dark: 63%;
+}
+
+:root[data-seed-id="amber"] {
+  --fc-seed-h: 32;
+  --fc-seed-s: 90%;
+  --fc-seed-l-light: 48%;
+  --fc-seed-l-dark: 62%;
+}
+
+:root[data-seed-id="emerald"] {
+  --fc-seed-h: 160;
+  --fc-seed-s: 84%;
+  --fc-seed-l-light: 39%;
+  --fc-seed-l-dark: 55%;
+}
+
+:root[data-seed-id="violet"] {
+  --fc-seed-h: 262;
+  --fc-seed-s: 83%;
+  --fc-seed-l-light: 58%;
+  --fc-seed-l-dark: 69%;
+}
+
+:root[data-seed-id="rose"] {
+  --fc-seed-h: 350;
+  --fc-seed-s: 89%;
+  --fc-seed-l-light: 56%;
+  --fc-seed-l-dark: 65%;
+}
+
+:root[data-seed-id="cyan"] {
+  --fc-seed-h: 189;
+  --fc-seed-s: 94%;
+  --fc-seed-l-light: 41%;
+  --fc-seed-l-dark: 56%;
+}
+
+/* Pure Black OLED 深色模式覆盖 */
+:root[data-pure-black="true"][data-resolved-theme="dark"],
+:root[data-pure-black="true"]:has(> head > meta[name="color-scheme"][content="dark"]) {
+  --fc-surface-page-dark: #000000;
+  --fc-surface-chrome-dark: #09090b;
+  --fc-surface-card-dark: color-mix(in oklab, #141416 calc(100% - var(--fc-tint-strength) * 0.7), var(--fc-primary));
+  --fc-surface-block-dark: color-mix(in oklab, #202024 calc(100% - var(--fc-tint-strength) * 0.8), var(--fc-primary));
+  --fc-surface-inset-dark: color-mix(in oklab, #2b2b30 calc(100% - var(--fc-tint-strength) * 0.8), var(--fc-primary));
+}
+
+/* ColorStyle 衍生风格变体 */
+:root[data-color-style="vivid"] {
+  --fc-tint-strength: 0%;
+  --fc-primary-chroma-scale: 1;
+}
+
+:root[data-color-style="tinted"] {
+  --fc-tint-strength: 7%;
+  --fc-primary-chroma-scale: 1;
+}
+
+:root[data-color-style="soft"] {
+  --fc-tint-strength: 2%;
+  --fc-primary-chroma-scale: 0.62;
+}
+
+:root[data-color-style="monochrome"] {
+  --fc-tint-strength: 0%;
+  --fc-primary-chroma-scale: 0;
+  --fc-primary-light: #18181b;
+  --fc-primary-dark: #f4f4f5;
+  --fc-on-primary-light: #ffffff;
+  --fc-on-primary-dark: #18181b;
+}
+
+/* 不支持 light-dark() 函数的旧版运行环境降级回退 */
+@supports not (color: light-dark(white, black)) {
+  :root {
+    --fc-primary: var(--fc-primary-light);
+    --fc-on-primary: var(--fc-on-primary-light);
+    --fc-surface-page: var(--fc-surface-page-light);
+    --fc-surface-card: var(--fc-surface-card-light);
+    --fc-surface-block: var(--fc-surface-block-light);
+    --fc-surface-inset: var(--fc-surface-inset-light);
+    --fc-surface-chrome: var(--fc-surface-chrome-light);
+    --fc-surface-floating: var(--fc-surface-card-light);
+    --fc-on-surface: var(--fc-on-surface-light);
+    --fc-on-surface-variant: var(--fc-on-surface-variant-light);
+    --fc-outline: var(--fc-outline-light);
+    --fc-success: #15803d;
+    --fc-success-container: #dcfce7;
+    --fc-on-success-container: #064e1c;
+    --fc-warning: #c25e00;
+    --fc-warning-container: #ffedd5;
+    --fc-on-warning-container: #7c2d12;
+    --fc-error: #dc2626;
+    --fc-error-container: #fee2e2;
+    --fc-on-error-container: #7f1d1d;
+  }
+
+  :root[data-resolved-theme="dark"] {
+    --fc-primary: var(--fc-primary-dark);
+    --fc-on-primary: var(--fc-on-primary-dark);
+    --fc-surface-page: var(--fc-surface-page-dark);
+    --fc-surface-card: var(--fc-surface-card-dark);
+    --fc-surface-block: var(--fc-surface-block-dark);
+    --fc-surface-inset: var(--fc-surface-inset-dark);
+    --fc-surface-chrome: var(--fc-surface-chrome-dark);
+    --fc-surface-floating: var(--fc-surface-block-dark);
+    --fc-on-surface: var(--fc-on-surface-dark);
+    --fc-on-surface-variant: var(--fc-on-surface-variant-dark);
+    --fc-outline: var(--fc-outline-dark);
+    --fc-success: #4ade80;
+    --fc-success-container: #144323;
+    --fc-on-success-container: #bbf7d0;
+    --fc-warning: #fb923c;
+    --fc-warning-container: #4d2509;
+    --fc-on-warning-container: #ffedd5;
+    --fc-error: #f87171;
+    --fc-error-container: #521818;
+    --fc-on-error-container: #fee2e2;
+  }
+}

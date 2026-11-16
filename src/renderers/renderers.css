@@ -1,4 +1,8 @@
 /* ==========================================================================
+ * 文档渲染器统一视觉样式（基于 FlClash UI 四层表面层级与克制状态色体系）
+ * ========================================================================== */
+
+/* ==========================================================================
  * Word Renderer (.fp-word-*)
  * ========================================================================== */
 
@@ -8,22 +12,21 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--fp-bg);
-  color: var(--fp-fg);
-  font-family: var(--fp-font);
+  background-color: var(--fc-surface-page);
+  color: var(--fc-on-surface);
+  font-family: var(--fc-font-sans);
 }
 
 .fp-word-viewport {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 0 4px;
-  box-sizing: border-box;
+  padding: 0 6px;
 }
 
 .fp-word-sizer {
   position: relative;
-  margin: 12px auto 20px;
+  margin: 14px auto 24px;
 }
 
 .fp-word-scale-layer {
@@ -36,7 +39,7 @@
 
 .fp-word-stage .docx-wrapper {
   background: transparent !important;
-  padding: 12px !important;
+  padding: 10px !important;
   margin: 0 !important;
   display: flex;
   flex-direction: column;
@@ -46,11 +49,9 @@
 .fp-word-stage .docx-wrapper > section.docx {
   background: #ffffff !important;
   color: #111827 !important;
-  box-shadow:
-    0 4px 18px rgba(0, 0, 0, 0.2),
-    0 1px 4px rgba(0, 0, 0, 0.12) !important;
-  border-radius: 2px;
-  margin-bottom: 16px !important;
+  box-shadow: var(--fc-shadow-e1) !important;
+  border-radius: 6px;
+  margin-bottom: 18px !important;
 }
 
 .fp-word-stage .docx-wrapper > section.docx:last-child {
@@ -64,34 +65,36 @@
 }
 
 .fp-word-search-hit {
-  background: rgba(250, 204, 21, 0.45);
+  background: rgba(250, 204, 21, 0.48);
   color: inherit;
-  border-radius: 2px;
+  border-radius: 3px;
   padding: 0;
 }
 
 .fp-word-search-hit.is-active {
-  background: rgba(249, 115, 22, 0.82);
-  color: #ffffff;
-  box-shadow: 0 0 0 1px rgba(234, 88, 12, 0.9);
+  background: var(--fc-primary);
+  color: var(--fc-on-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--fc-primary) 35%, transparent);
 }
 
 /* ==========================================================================
- * PPT Renderer (.fp-ppt-*)
+ * PPT & PDF 缩略图栏共享 Chrome 体系 (.fp-ppt-* / .fp-pdf-*)
  * ========================================================================== */
 
-.fp-ppt-root {
+.fp-ppt-root,
+.fp-pdf-root {
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--fp-bg);
-  color: var(--fp-fg);
-  font-family: var(--fp-font);
+  background-color: var(--fc-surface-page);
+  color: var(--fc-on-surface);
+  font-family: var(--fc-font-sans);
 }
 
-.fp-ppt-body {
+.fp-ppt-body,
+.fp-pdf-body {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -99,120 +102,150 @@
   overflow: hidden;
 }
 
-.fp-ppt-thumbs {
-  width: 148px;
-  flex: 0 0 148px;
+.fp-ppt-thumbs,
+.fp-pdf-thumbs {
+  width: 152px;
+  flex: 0 0 152px;
   display: flex;
   flex-direction: column;
-  background: var(--fp-card);
-  border-right: 1px solid var(--fp-border);
+  background-color: var(--fc-surface-chrome);
+  border-right: 1px solid var(--fc-divider);
   overflow: hidden;
 }
 
-.fp-ppt-thumbs[hidden] {
+.fp-ppt-thumbs[hidden],
+.fp-pdf-thumbs[hidden] {
   display: none !important;
 }
 
-.fp-ppt-thumbs-header {
+.fp-ppt-thumbs-header,
+.fp-pdf-thumbs-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--fp-muted-fg);
-  border-bottom: 1px solid var(--fp-border);
+  padding: 9px 10px 7px 12px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--fc-on-surface-variant);
   flex: 0 0 auto;
 }
 
-.fp-ppt-thumbs-close {
+.fp-ppt-thumbs-close,
+.fp-pdf-thumbs-close {
   appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--fp-muted-fg);
+  border: 0;
+  background-color: var(--fc-surface-block);
+  color: var(--fc-on-surface-variant);
   cursor: pointer;
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--fc-radius-pill);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1;
 }
 
-.fp-ppt-thumbs-close:hover {
-  background: var(--fp-secondary);
-  color: var(--fp-fg);
+.fp-ppt-thumbs-close:hover,
+.fp-pdf-thumbs-close:hover {
+  background-color: var(--fc-surface-inset);
+  color: var(--fc-on-surface);
 }
 
-.fp-ppt-thumbs-list {
+.fp-ppt-thumbs-list,
+.fp-pdf-thumbs-list {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 8px;
+  padding: 6px 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.fp-ppt-thumb-item {
+/* 缩略图卡：默认中性 block 填充，选中保持中性底并用主色环 + 实心页码徽章标识 */
+.fp-ppt-thumb-item,
+.fp-pdf-thumb-item {
   appearance: none;
-  border: 2px solid var(--fp-border);
-  background: var(--fp-bg);
-  border-radius: 6px;
-  padding: 4px;
+  border: 0;
+  background-color: var(--fc-surface-card);
+  border-radius: 14px;
+  padding: 6px;
   cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
+  gap: 6px;
   flex: 0 0 auto;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
-.fp-ppt-thumb-item:hover {
-  border-color: var(--fp-muted-fg);
+.fp-ppt-thumb-item:hover,
+.fp-pdf-thumb-item:hover {
+  background-color: var(--fc-surface-block);
 }
 
-.fp-ppt-thumb-item.is-active {
-  border-color: var(--fp-primary);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--fp-primary) 22%, transparent);
+.fp-ppt-thumb-item.is-active,
+.fp-pdf-thumb-item.is-active {
+  box-shadow: inset 0 0 0 2px var(--fc-primary);
 }
 
-.fp-ppt-thumb-preview {
-  width: 112px;
-  min-height: 63px;
+.fp-ppt-thumb-preview,
+.fp-pdf-thumb-preview {
+  width: 114px;
   background: #ffffff;
-  border-radius: 3px;
+  border-radius: 8px;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.fp-ppt-thumb-label {
+.fp-ppt-thumb-preview {
+  min-height: 64px;
+}
+
+.fp-pdf-thumb-preview {
+  min-height: 82px;
+}
+
+.fp-pdf-thumb-canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.fp-ppt-thumb-label,
+.fp-pdf-thumb-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  padding: 1px 7px;
+  border-radius: var(--fc-radius-pill);
   font-size: 11px;
-  line-height: 1.2;
-  color: var(--fp-muted-fg);
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--fc-on-surface-variant);
   font-variant-numeric: tabular-nums;
 }
 
-.fp-ppt-thumb-item.is-active .fp-ppt-thumb-label {
-  color: var(--fp-primary);
-  font-weight: 600;
+.fp-ppt-thumb-item.is-active .fp-ppt-thumb-label,
+.fp-pdf-thumb-item.is-active .fp-pdf-thumb-label {
+  background-color: var(--fc-primary);
+  color: var(--fc-on-primary);
+  font-weight: 700;
 }
 
+/* PPT 主舞台 */
 .fp-ppt-scroll {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: 14px;
-  box-sizing: border-box;
+  padding: 16px;
 }
 
 .fp-ppt-stage {
@@ -233,179 +266,13 @@
   flex-shrink: 0;
 }
 
-@media (max-width: 560px) {
-  .fp-ppt-body {
-    flex-direction: column-reverse;
-  }
-
-  .fp-ppt-thumbs {
-    width: 100%;
-    height: 116px;
-    flex: 0 0 116px;
-    border-right: none;
-    border-top: 1px solid var(--fp-border);
-  }
-
-  .fp-ppt-thumbs-header {
-    padding: 4px 10px;
-  }
-
-  .fp-ppt-thumbs-list {
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 6px 8px;
-  }
-
-  .fp-ppt-thumb-preview {
-    width: 96px;
-    min-height: 54px;
-  }
-}
-
-/* ==========================================================================
- * PDF Renderer (.fp-pdf-*)
- * ========================================================================== */
-
-.fp-pdf-root {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--fp-bg);
-  color: var(--fp-fg);
-  font-family: var(--fp-font);
-}
-
-.fp-pdf-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: row;
-  overflow: hidden;
-}
-
-.fp-pdf-thumbs {
-  width: 148px;
-  flex: 0 0 148px;
-  display: flex;
-  flex-direction: column;
-  background: var(--fp-card);
-  border-right: 1px solid var(--fp-border);
-  overflow: hidden;
-}
-
-.fp-pdf-thumbs[hidden] {
-  display: none !important;
-}
-
-.fp-pdf-thumbs-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--fp-muted-fg);
-  border-bottom: 1px solid var(--fp-border);
-  flex: 0 0 auto;
-}
-
-.fp-pdf-thumbs-close {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--fp-muted-fg);
-  cursor: pointer;
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 15px;
-  line-height: 1;
-}
-
-.fp-pdf-thumbs-close:hover {
-  background: var(--fp-secondary);
-  color: var(--fp-fg);
-}
-
-.fp-pdf-thumbs-list {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.fp-pdf-thumb-item {
-  appearance: none;
-  border: 2px solid var(--fp-border);
-  background: var(--fp-bg);
-  border-radius: 6px;
-  padding: 4px;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
-  flex: 0 0 auto;
-}
-
-.fp-pdf-thumb-item:hover {
-  border-color: var(--fp-muted-fg);
-}
-
-.fp-pdf-thumb-item.is-active {
-  border-color: var(--fp-primary);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--fp-primary) 22%, transparent);
-}
-
-.fp-pdf-thumb-preview {
-  width: 112px;
-  min-height: 80px;
-  background: #ffffff;
-  border-radius: 3px;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.fp-pdf-thumb-canvas {
-  display: block;
-  max-width: 100%;
-  height: auto;
-}
-
-.fp-pdf-thumb-label {
-  font-size: 11px;
-  line-height: 1.2;
-  color: var(--fp-muted-fg);
-  font-variant-numeric: tabular-nums;
-}
-
-.fp-pdf-thumb-item.is-active .fp-pdf-thumb-label {
-  color: var(--fp-primary);
-  font-weight: 600;
-}
-
+/* PDF 主舞台 */
 .fp-pdf-scroll {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: 14px;
-  box-sizing: border-box;
+  padding: 16px;
 }
 
 .fp-pdf-stage {
@@ -428,11 +295,9 @@
   position: relative;
   flex: 0 0 auto;
   background: #ffffff;
-  border-radius: 3px;
+  border-radius: 6px;
   overflow: hidden;
-  box-shadow:
-    0 4px 18px rgba(0, 0, 0, 0.16),
-    0 1px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--fc-shadow-e1);
 }
 
 .fp-pdf-canvas-wrap {
@@ -478,21 +343,23 @@
 }
 
 .fp-pdf-search-hit.is-active {
-  background: rgba(26, 115, 232, 0.38);
-  outline: 2px solid #1a73e8;
+  background: color-mix(in srgb, var(--fc-primary) 38%, transparent);
+  outline: 2px solid var(--fc-primary);
 }
 
 .fp-pdf-page-badge {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
+  right: 10px;
+  bottom: 10px;
   z-index: 3;
-  padding: 2px 7px;
-  border-radius: 999px;
+  padding: 3px 9px;
+  border-radius: var(--fc-radius-pill);
   font-size: 11px;
-  font-family: var(--fp-mono);
+  font-family: var(--fc-font-mono);
+  font-variant-numeric: tabular-nums;
   color: #ffffff;
-  background: rgba(15, 23, 42, 0.56);
+  background: rgba(18, 17, 16, 0.65);
+  backdrop-filter: blur(10px);
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.15s ease;
@@ -503,32 +370,37 @@
 }
 
 @media (max-width: 560px) {
+  .fp-ppt-body,
   .fp-pdf-body {
     flex-direction: column-reverse;
   }
 
+  .fp-ppt-thumbs,
   .fp-pdf-thumbs {
     width: 100%;
-    height: 116px;
-    flex: 0 0 116px;
+    height: 118px;
+    flex: 0 0 118px;
     border-right: none;
-    border-top: 1px solid var(--fp-border);
+    border-top: 1px solid var(--fc-divider);
   }
 
+  .fp-ppt-thumbs-header,
   .fp-pdf-thumbs-header {
-    padding: 4px 10px;
+    padding: 5px 10px;
   }
 
+  .fp-ppt-thumbs-list,
   .fp-pdf-thumbs-list {
     flex-direction: row;
     overflow-x: auto;
     overflow-y: hidden;
-    padding: 6px 8px;
+    padding: 4px 8px 8px;
   }
 
+  .fp-ppt-thumb-preview,
   .fp-pdf-thumb-preview {
-    width: 96px;
-    min-height: 54px;
+    width: 94px;
+    min-height: 52px;
   }
 }
 
@@ -542,19 +414,19 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--fp-bg);
-  color: var(--fp-fg);
-  font-family: var(--fp-font);
+  background-color: var(--fc-surface-page);
+  color: var(--fc-on-surface);
+  font-family: var(--fc-font-sans);
 }
 
 .fp-html-warning {
   flex: 0 0 auto;
   padding: 8px 12px;
   font-size: 12px;
+  font-weight: 500;
   line-height: 1.45;
-  background: rgba(245, 158, 11, 0.14);
-  border-bottom: 1px solid rgba(245, 158, 11, 0.35);
-  color: var(--fp-fg);
+  background-color: var(--fc-warning-container);
+  color: var(--fc-on-warning-container);
 }
 
 .fp-html-warning[hidden] {
@@ -567,12 +439,15 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding: 10px;
 }
 
 .fp-html-frame-wrap {
   flex: 1 1 auto;
   min-height: 0;
   background: #ffffff;
+  border-radius: var(--fc-radius-block);
+  box-shadow: var(--fc-shadow-e1);
   overflow: hidden;
 }
 
@@ -589,7 +464,9 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--fp-card);
+  background-color: var(--fc-surface-card);
+  border-radius: var(--fc-radius-block);
+  box-shadow: var(--fc-shadow-e1);
   overflow: hidden;
 }
 
@@ -599,14 +476,15 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--fp-border);
-  background: var(--fp-secondary);
+  padding: 9px 14px;
+  background-color: var(--fc-surface-block);
 }
 
 .fp-html-source-meta {
   font-size: 12px;
-  color: var(--fp-muted-fg);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--fc-on-surface-variant);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -614,26 +492,24 @@
 
 .fp-html-copy-btn {
   appearance: none;
-  border: 1px solid var(--fp-border);
-  background: var(--fp-bg);
-  color: var(--fp-fg);
-  border-radius: 5px;
-  padding: 4px 10px;
+  border: 0;
+  background-color: var(--fc-surface-card);
+  color: var(--fc-on-surface);
+  border-radius: var(--fc-radius-pill);
+  padding: 5px 12px;
   font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
-  flex: 0 0 auto;
-  transition:
-    border-color 0.15s ease,
-    background-color 0.15s ease;
+  flex: none;
 }
 
 .fp-html-copy-btn:hover {
-  border-color: var(--fp-primary);
+  background-color: var(--fc-surface-inset);
 }
 
 .fp-html-copy-btn.is-copied {
-  border-color: var(--fp-primary);
-  color: var(--fp-primary);
+  background-color: var(--fc-primary);
+  color: var(--fc-on-primary);
 }
 
 .fp-html-source-body {
@@ -642,7 +518,7 @@
   overflow: auto;
   display: flex;
   align-items: flex-start;
-  font-family: var(--fp-mono);
+  font-family: var(--fc-font-mono);
   font-size: 12px;
   line-height: 1.55;
 }
@@ -651,10 +527,11 @@
   flex: 0 0 auto;
   margin: 0;
   padding: 12px 10px 12px 12px;
-  min-width: 36px;
+  min-width: 40px;
   text-align: right;
-  color: var(--fp-muted-fg);
-  border-right: 1px solid var(--fp-border);
+  color: var(--fc-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+  border-right: 1px solid var(--fc-divider-subtle);
   user-select: none;
   font-family: inherit;
   font-size: inherit;
@@ -667,20 +544,23 @@
   padding: 12px 16px;
   white-space: pre;
   tab-size: 2;
-  color: var(--fp-fg);
+  color: var(--fc-on-surface);
   font-family: inherit;
   font-size: inherit;
   line-height: inherit;
 }
 
-/* ==================== MP4 视频流式播放器 ==================== */
+/* ==========================================================================
+ * MP4 视频流式播放器 (.fp-video-*)
+ * ========================================================================== */
+
 .fp-video-root {
   display: flex;
   flex-direction: column;
   width: 100%;
   height: 100%;
   min-height: 0;
-  background: var(--fp-bg);
+  background-color: var(--fc-surface-page);
 }
 
 .fp-video-infobar {
@@ -690,11 +570,11 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 6px 12px;
-  background: var(--fp-card);
-  border-bottom: 1px solid var(--fp-border);
+  padding: 8px 12px;
+  background-color: var(--fc-surface-chrome);
+  border-bottom: 1px solid var(--fc-divider-subtle);
   font-size: 12px;
-  color: var(--fp-muted-fg);
+  color: var(--fc-on-surface-variant);
 }
 
 .fp-video-meta-group {
@@ -702,6 +582,7 @@
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .fp-video-controls-group {
@@ -711,13 +592,15 @@
 }
 
 .fp-video-rate-select {
-  height: 24px;
-  padding: 0 6px;
-  border-radius: 5px;
-  border: 1px solid var(--fp-border);
-  background: var(--fp-muted);
-  color: var(--fp-fg);
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--fc-radius-pill);
+  background-color: var(--fc-surface-block);
+  color: var(--fc-on-surface);
   font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
 
@@ -727,7 +610,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 14px;
+  padding: 16px;
   overflow: auto;
 }
 
@@ -736,19 +619,19 @@
   max-height: 100%;
   width: auto;
   height: auto;
-  border-radius: 8px;
+  border-radius: var(--fc-radius-block);
   background: #000000;
-  box-shadow: var(--fp-shadow);
+  box-shadow: var(--fc-shadow-e2);
   outline: none;
 }
 
 .fp-video-error {
-  padding: 16px 20px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--fp-error) 35%, transparent);
-  background: color-mix(in srgb, var(--fp-error) 10%, var(--fp-card));
-  color: var(--fp-fg);
+  padding: 18px 22px;
+  border-radius: var(--fc-radius-block);
+  background-color: var(--fc-error-container);
+  color: var(--fc-on-error-container);
   font-size: 12.5px;
+  font-weight: 500;
   max-width: 440px;
   text-align: center;
 }
@@ -763,9 +646,9 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--fp-bg);
-  color: var(--fp-fg);
-  font-family: var(--fp-font);
+  background-color: var(--fc-surface-page);
+  color: var(--fc-on-surface);
+  font-family: var(--fc-font-sans);
 }
 
 .fp-excel-formulabar {
@@ -773,10 +656,10 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
-  min-height: 36px;
-  background: var(--fp-card);
-  border-bottom: 1px solid var(--fp-border);
+  padding: 7px 12px;
+  min-height: 40px;
+  background-color: var(--fc-surface-chrome);
+  border-bottom: 1px solid var(--fc-divider-subtle);
 }
 
 .fp-excel-formulabar-left {
@@ -791,28 +674,28 @@
   align-items: center;
   justify-content: center;
   min-width: 44px;
-  height: 24px;
-  padding: 0 7px;
-  border-radius: 5px;
-  background: var(--fp-secondary);
-  border: 1px solid var(--fp-border);
-  color: var(--fp-fg);
-  font-family: var(--fp-mono);
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--fc-radius-pill);
+  background-color: var(--fc-surface-card);
+  color: var(--fc-on-surface);
+  font-family: var(--fc-font-mono);
   font-size: 11.5px;
-  font-weight: 600;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .fp-excel-sheet-stats {
   display: inline-flex;
   align-items: center;
-  height: 24px;
-  padding: 0 7px;
-  border-radius: 999px;
-  background: var(--fp-muted);
-  border: 1px solid var(--fp-border);
-  color: var(--fp-muted-fg);
+  height: 26px;
+  padding: 0 9px;
+  border-radius: var(--fc-radius-pill);
+  background-color: var(--fc-surface-block);
+  color: var(--fc-on-surface-variant);
   font-size: 11px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -820,43 +703,41 @@
 .fp-excel-formula-value {
   flex: 1 1 auto;
   min-width: 0;
-  height: 24px;
-  line-height: 22px;
-  padding: 0 8px;
-  border-radius: 5px;
-  border: 1px solid var(--fp-border);
-  background: var(--fp-bg);
-  color: var(--fp-fg);
-  font-family: var(--fp-mono);
+  height: 26px;
+  line-height: 26px;
+  padding: 0 10px;
+  border-radius: var(--fc-radius-pill);
+  background-color: var(--fc-surface-card);
+  color: var(--fc-on-surface);
+  font-family: var(--fc-font-mono);
   font-size: 11.5px;
   white-space: nowrap;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
+  scrollbar-width: none;
 }
 
 .fp-excel-formula-value.is-placeholder {
-  color: var(--fp-muted-fg);
-  font-family: var(--fp-font);
+  color: var(--fc-on-surface-variant);
+  font-family: var(--fc-font-sans);
 }
 
 .fp-excel-copy-btn {
-  flex: 0 0 auto;
-  height: 24px;
-  padding: 0 9px;
+  flex: none;
+  min-block-size: 26px;
+  padding: 0 10px;
   font-size: 11.5px;
+  background-color: var(--fc-surface-card);
 }
 
 .fp-excel-copy-btn.is-copied {
-  border-color: var(--fp-primary);
-  color: var(--fp-primary);
-  background: var(--fp-active-soft);
+  background-color: var(--fc-success-container);
+  color: var(--fc-on-success-container);
 }
 
 .fp-excel-copy-btn.is-copy-failed {
-  border-color: var(--fp-error);
-  color: var(--fp-error);
-  background: rgba(239, 68, 68, 0.1);
+  background-color: var(--fc-error-container);
+  color: var(--fc-on-error-container);
 }
 
 .fp-excel-truncation-banner {
@@ -866,11 +747,11 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 6px 10px;
-  background: rgba(245, 158, 11, 0.12);
-  border-bottom: 1px solid rgba(245, 158, 11, 0.32);
-  color: #92400e;
+  padding: 7px 12px;
+  background-color: var(--fc-warning-container);
+  color: var(--fc-on-warning-container);
   font-size: 11.5px;
+  font-weight: 500;
 }
 
 .fp-excel-truncation-text {
@@ -885,8 +766,8 @@
 }
 
 .fp-excel-load-all-btn {
-  height: 22px;
-  padding: 0 8px;
+  min-block-size: 24px;
+  padding: 0 10px;
   font-size: 11.5px;
 }
 
@@ -896,16 +777,16 @@
   min-height: 0;
   overflow: auto;
   position: relative;
-  background: var(--fp-bg);
+  background-color: var(--fc-surface-page);
 }
 
 .fp-excel-table {
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
-  background: var(--fp-card);
-  color: var(--fp-fg);
-  font-family: var(--fp-font);
+  background-color: var(--fc-surface-card);
+  color: var(--fc-on-surface);
+  font-family: var(--fc-font-sans);
   font-size: calc(12px * var(--fp-excel-zoom, 1));
   line-height: 1.35;
 }
@@ -915,24 +796,24 @@
   top: 0;
   left: 0;
   z-index: 4;
-  height: calc(24px * var(--fp-excel-zoom, 1));
+  height: calc(25px * var(--fp-excel-zoom, 1));
   padding: 0;
-  background: var(--fp-secondary);
-  border-right: 1px solid var(--fp-border);
-  border-bottom: 1px solid var(--fp-border);
+  background-color: var(--fc-surface-inset);
+  border-right: 1px solid var(--fc-divider-subtle);
+  border-bottom: 1px solid var(--fc-divider-subtle);
 }
 
 .fp-excel-col-header {
   position: sticky;
   top: 0;
   z-index: 3;
-  height: calc(24px * var(--fp-excel-zoom, 1));
+  height: calc(25px * var(--fp-excel-zoom, 1));
   padding: 0 calc(6px * var(--fp-excel-zoom, 1));
-  background: var(--fp-muted);
-  color: var(--fp-muted-fg);
-  border-right: 1px solid var(--fp-border);
-  border-bottom: 1px solid var(--fp-border);
-  font-family: var(--fp-mono);
+  background-color: var(--fc-surface-block);
+  color: var(--fc-on-surface-variant);
+  border-right: 1px solid var(--fc-divider-subtle);
+  border-bottom: 1px solid var(--fc-divider-subtle);
+  font-family: var(--fc-font-mono);
   font-size: calc(11px * var(--fp-excel-zoom, 1));
   font-weight: 600;
   text-align: center;
@@ -946,13 +827,13 @@
   position: sticky;
   left: 0;
   z-index: 2;
-  height: calc(24px * var(--fp-excel-zoom, 1));
+  height: calc(25px * var(--fp-excel-zoom, 1));
   padding: 0 calc(6px * var(--fp-excel-zoom, 1));
-  background: var(--fp-muted);
-  color: var(--fp-muted-fg);
-  border-right: 1px solid var(--fp-border);
-  border-bottom: 1px solid var(--fp-border);
-  font-family: var(--fp-mono);
+  background-color: var(--fc-surface-block);
+  color: var(--fc-on-surface-variant);
+  border-right: 1px solid var(--fc-divider-subtle);
+  border-bottom: 1px solid var(--fc-divider-subtle);
+  font-family: var(--fc-font-mono);
   font-size: calc(11px * var(--fp-excel-zoom, 1));
   font-weight: 500;
   text-align: center;
@@ -962,19 +843,19 @@
 
 .fp-excel-col-header.is-active-header,
 .fp-excel-row-header.is-active-header {
-  background: var(--fp-active-soft);
-  color: var(--fp-primary);
+  background-color: var(--fc-primary-tint-strong);
+  color: var(--fc-primary);
   font-weight: 700;
 }
 
 .fp-excel-cell {
   position: relative;
-  height: calc(24px * var(--fp-excel-zoom, 1));
+  height: calc(25px * var(--fp-excel-zoom, 1));
   padding: calc(3px * var(--fp-excel-zoom, 1)) calc(8px * var(--fp-excel-zoom, 1));
-  border-right: 1px solid var(--fp-border);
-  border-bottom: 1px solid var(--fp-border);
-  background: var(--fp-card);
-  color: var(--fp-fg);
+  border-right: 1px solid var(--fc-divider-subtle);
+  border-bottom: 1px solid var(--fc-divider-subtle);
+  background-color: var(--fc-surface-card);
+  color: var(--fc-on-surface);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -983,11 +864,11 @@
 }
 
 .fp-excel-cell:hover {
-  background: var(--fp-hover);
+  background-color: var(--fc-hover-overlay);
 }
 
 .fp-excel-cell-merged {
-  background: color-mix(in srgb, var(--fp-card) 94%, var(--fp-secondary));
+  background-color: color-mix(in srgb, var(--fc-surface-card) 92%, var(--fc-surface-block));
 }
 
 .fp-excel-cell-num {
@@ -997,14 +878,14 @@
 
 .fp-excel-cell-bool {
   text-align: center;
-  font-family: var(--fp-mono);
+  font-family: var(--fc-font-mono);
   font-size: calc(11px * var(--fp-excel-zoom, 1));
-  color: var(--fp-primary);
+  color: var(--fc-primary);
 }
 
 .fp-excel-cell-err {
-  color: var(--fp-error);
-  font-family: var(--fp-mono);
+  color: var(--fc-error);
+  font-family: var(--fc-font-mono);
 }
 
 .fp-excel-cell-formula::after {
@@ -1016,13 +897,13 @@
   height: 0;
   border-style: solid;
   border-width: 0 6px 6px 0;
-  border-color: transparent #15803d transparent transparent;
+  border-color: transparent var(--fc-success) transparent transparent;
   pointer-events: none;
 }
 
 .fp-excel-cell.is-selected {
-  background: var(--fp-active-soft);
-  outline: 2px solid var(--fp-primary);
+  background-color: var(--fc-primary-tint);
+  outline: 2px solid var(--fc-primary);
   outline-offset: -2px;
   z-index: 1;
 }
@@ -1032,8 +913,8 @@
 }
 
 .fp-excel-cell.fp-excel-search-hit.is-active {
-  background: rgba(26, 115, 232, 0.24);
-  outline: 2px solid var(--fp-primary);
+  background: var(--fc-primary-tint-strong);
+  outline: 2px solid var(--fc-primary);
   outline-offset: -2px;
   z-index: 1;
 }
@@ -1051,27 +932,32 @@
 }
 
 .fp-excel-empty-title {
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--fp-fg);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--fc-on-surface);
 }
 
 .fp-excel-empty-desc {
   font-size: 12px;
-  color: var(--fp-muted-fg);
+  color: var(--fc-on-surface-variant);
 }
 
+/* 工作表标签栏：采用 FlClash 药丸 Tabs */
 .fp-excel-sheetbar {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 10px;
-  background: var(--fp-card);
-  border-top: 1px solid var(--fp-border);
+  gap: 6px;
+  padding: 6px 12px;
+  background-color: var(--fc-surface-chrome);
+  border-top: 1px solid var(--fc-divider);
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+
+.fp-excel-sheetbar::-webkit-scrollbar {
+  display: none;
 }
 
 .fp-excel-sheetbar[hidden] {
@@ -1080,66 +966,37 @@
 
 .fp-excel-sheet-tab {
   appearance: none;
-  flex: 0 0 auto;
-  height: 24px;
+  flex: none;
+  height: 26px;
   max-width: 180px;
-  padding: 0 10px;
-  border-radius: 5px;
-  border: 1px solid var(--fp-border);
-  background: var(--fp-muted);
-  color: var(--fp-muted-fg);
+  padding: 0 12px;
+  border-radius: var(--fc-radius-pill);
+  border: 0;
+  background-color: var(--fc-surface-block);
+  color: var(--fc-on-surface-variant);
   font-family: inherit;
   font-size: 11.5px;
-  font-weight: 500;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
-  transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease;
 }
 
-.fp-excel-sheet-tab:hover {
-  background: var(--fp-hover);
-  color: var(--fp-fg);
+.fp-excel-sheet-tab:hover:not(.is-active) {
+  background-color: var(--fc-surface-inset);
+  color: var(--fc-on-surface);
 }
 
 .fp-excel-sheet-tab.is-active {
-  background: var(--fp-active-soft);
-  border-color: var(--fp-primary);
-  color: var(--fp-primary);
-  font-weight: 600;
-}
-
-:root[data-theme="dark"] .fp-excel-truncation-banner,
-:root[data-theme-override="dark"] .fp-excel-truncation-banner {
-  color: #fbbf24;
-  background: rgba(245, 158, 11, 0.16);
-  border-bottom-color: rgba(245, 158, 11, 0.36);
-}
-
-:root[data-theme="dark"] .fp-excel-cell-formula::after,
-:root[data-theme-override="dark"] .fp-excel-cell-formula::after {
-  border-color: transparent #4ade80 transparent transparent;
-}
-
-:root[data-theme="dark"] .fp-excel-cell.fp-excel-search-hit,
-:root[data-theme-override="dark"] .fp-excel-cell.fp-excel-search-hit {
-  background: rgba(250, 204, 21, 0.24);
-}
-
-:root[data-theme="dark"] .fp-excel-cell.fp-excel-search-hit.is-active,
-:root[data-theme-override="dark"] .fp-excel-cell.fp-excel-search-hit.is-active {
-  background: rgba(59, 130, 246, 0.32);
+  background-color: var(--fc-primary);
+  color: var(--fc-on-primary);
 }
 
 /* ==========================================================================
  * 缩放后拖拽平移视口 (.is-pannable / .is-over-text / .is-panning) 与文本选区高亮
  * ========================================================================== */
 
-/* 确保 PPT / Word 舞台在非拖拽平移状态下可选中文字 */
 .fp-ppt-scroll:not(.is-panning) .fp-ppt-stage,
 .fp-word-viewport:not(.is-panning) .fp-word-stage {
   user-select: text;
@@ -1152,7 +1009,6 @@
   cursor: grab;
 }
 
-/* 鼠标停留在文字上或 PDF 文本层节点上时自动切换为选字光标 */
 .fp-ppt-scroll.is-pannable.is-over-text:not(.is-panning),
 .fp-pdf-scroll.is-pannable.is-over-text:not(.is-panning),
 .fp-word-viewport.is-pannable.is-over-text:not(.is-panning),
@@ -1160,7 +1016,6 @@
   cursor: text;
 }
 
-/* 交互式链接与按钮仍保持指针手型 */
 .fp-ppt-scroll.is-pannable:not(.is-panning) :is(a, button, [role="link"]),
 .fp-pdf-scroll.is-pannable:not(.is-panning) :is(a, button, [role="link"]),
 .fp-word-viewport.is-pannable:not(.is-panning) :is(a, button, [role="link"]) {
@@ -1178,23 +1033,16 @@
   -webkit-user-select: none !important;
 }
 
-/* 增强预览文本的原生选中高亮可见度 */
+/* 增强预览文本的原生选中高亮可见度（动态联动当前种子色） */
 .fp-ppt-stage ::selection,
 .fp-word-stage ::selection,
 .fp-html-code ::selection {
-  background: rgba(37, 99, 235, 0.28);
+  background: color-mix(in srgb, var(--fc-primary) 28%, transparent);
   color: inherit;
 }
 
-:root[data-theme="dark"] .fp-html-code ::selection,
-:root[data-theme-override="dark"] .fp-html-code ::selection {
-  background: rgba(59, 130, 246, 0.4);
-  color: #ffffff;
-}
-
-/* PDF 透明文本层保留透明字形，仅以高对比度半透明蓝色高亮选区 */
 .fp-pdf-text-layer ::selection,
 .fp-pdf-text-layer :is(span, br)::selection {
   color: transparent;
-  background: rgba(37, 99, 235, 0.34);
+  background: color-mix(in srgb, var(--fc-primary) 34%, transparent);
 }

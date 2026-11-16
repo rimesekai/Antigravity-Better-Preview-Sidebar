@@ -111,10 +111,12 @@ export function createVideoRenderer(): PreviewRenderer {
 
       const loopBtn = document.createElement('button');
       loopBtn.type = 'button';
-      loopBtn.className = 'fp-btn fp-btn-ghost';
+      loopBtn.className = 'fp-btn fp-btn-tonal fp-btn-compact';
+      loopBtn.setAttribute('aria-pressed', String(loopEnabled));
       loopBtn.addEventListener('click', () => {
         loopEnabled = !loopEnabled;
         loopBtn.classList.toggle('is-active', loopEnabled);
+        loopBtn.setAttribute('aria-pressed', String(loopEnabled));
         if (videoEl) {
           videoEl.loop = loopEnabled;
         }

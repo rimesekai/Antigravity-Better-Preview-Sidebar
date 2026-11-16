@@ -2263,5 +2263,43 @@ describe('POST /api/fs/reveal 在文件资源管理器中定位文件测试', ()
   });
 });
 
+describe('uiHelpers 文件名保尾拆分与 IME 安全判定测试', () => {
+  it('splitFileNameParts 正确拆分普通文件名、多点文件名、隐藏文件与无扩展名文件', async () => {
+    const { splitFileNameParts, isImeComposing } = await import('../src/utils/uiHelpers.ts');
+
+    assert.deepEqual(splitFileNameParts('年度财务报告.v2.final.xlsx'), {
+      stem: '年度财务报告.v2.final',
+      ext: '.xlsx',
+    });
+    assert.deepEqual(splitFileNameParts('README'), { stem: 'README', ext: '' });
+    assert.deepEqual(splitFileNameParts('.gitignore'), { stem: '.gitignore', ext: '' });
+    assert.deepEqual(splitFileNameParts('archive.'), { stem: 'archive.', ext: '' });
+
+    assert.equal(isImeComposing({ isComposing: true, keyCode: 13 }), true);
+    assert.equal(isImeComposing({ isComposing: false, keyCode: 229 }), true);
+    assert.equal(isImeComposing({ isComposing: false, keyCode: 13 }), false);
+  });
+});
+
+describe('themeSync 外观种子与色板预设测试', () => {
+  it('SEED_PRESETS 与 getAppearancePrefs 在非浏览器或无效存储下返回安全默认值', async () => {
+    const { SEED_PRESETS, getAppearancePrefs, computeRelativeLuminance, parseCssColorToRgb } =
+      await import('../src/services/themeSync.ts');
+
+    assert.equal(SEED_PRESETS.length, 6);
+    assert.deepEqual(getAppearancePrefs(), {
+      seedId: 'auto-pair',
+      colorStyle: 'vivid',
+      pureBlack: false,
+      liquidGlass: true,
+    });
+
+    const rgb = parseCssColorToRgb('#0A7AFF');
+    assert.ok(rgb);
+    assert.ok(computeRelativeLuminance(rgb) < 0.5);
+  });
+});
+
+
 
 
