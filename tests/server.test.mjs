@@ -546,9 +546,13 @@ describe('workspaceScanner 工作区扫描测试', () => {
     mkdirSync(join(tempRoot, 'node_modules', 'pkg'), { recursive: true });
     mkdirSync(join(tempRoot, 'dist'), { recursive: true });
     mkdirSync(join(tempRoot, '.git'), { recursive: true });
+    mkdirSync(join(tempRoot, '.dsh'), { recursive: true });
     mkdirSync(join(tempRoot, 'd1', 'd2', 'd3', 'd4', 'd5', 'd6'), { recursive: true });
 
     writeFileSync(join(tempRoot, 'docs', 'a.docx'), 'docx');
+    writeFileSync(join(tempRoot, 'docs', '~$a.docx'), 'lock');
+    writeFileSync(join(tempRoot, 'docs', '.~lock.a.docx#'), 'lock');
+    writeFileSync(join(tempRoot, 'docs', '._a.docx'), 'meta');
     writeFileSync(join(tempRoot, 'docs', 'sub', 'b.pptx'), 'pptx');
     writeFileSync(join(tempRoot, 'docs', 'budget.xlsx'), 'xlsx');
     writeFileSync(join(tempRoot, 'docs', 'data.csv'), 'col1,col2\n1,2\n');
@@ -557,6 +561,7 @@ describe('workspaceScanner 工作区扫描测试', () => {
     writeFileSync(join(tempRoot, 'node_modules', 'pkg', 'ignored.html'), '<p>ignore</p>');
     writeFileSync(join(tempRoot, 'dist', 'ignored.html'), '<p>ignore</p>');
     writeFileSync(join(tempRoot, '.git', 'ignored.html'), '<p>ignore</p>');
+    writeFileSync(join(tempRoot, '.dsh', 'ignored.docx'), 'lock');
     writeFileSync(join(tempRoot, 'd1', 'd2', 'd3', 'd4', 'd5', 'depth5.pptx'), 'ok');
     writeFileSync(join(tempRoot, 'd1', 'd2', 'd3', 'd4', 'd5', 'd6', 'depth6.pptx'), 'too deep');
   });
@@ -1947,5 +1952,316 @@ describe('i18n 中英双语自动识别与错误翻译测试', () => {
     }
   });
 });
+
+describe('docxPageFields Word 页码域解析与静态缓存清理测试', () => {
+  it('能正确识别 PAGE / NUMPAGES / SECTIONPAGES 并格式化各类页码', async () => {
+    const { parsePageFieldKind, formatPageNumber } = await import('../src/utils/docxPageFields.ts');
+
+    assert.equal(parsePageFieldKind(' PAGE '), 'PAGE');
+    assert.equal(parsePageFieldKind('page \\* MERGEFORMAT'), 'PAGE');
+    assert.equal(parsePageFieldKind(' NUMPAGES \\* Arabic '), 'NUMPAGES');
+    assert.equal(parsePageFieldKind('SECTIONPAGES'), 'SECTIONPAGES');
+    assert.equal(parsePageFieldKind('DATE \\@ "yyyy-MM-dd"'), null);
+    assert.equal(parsePageFieldKind('PAGEREF _Toc123'), null);
+
+    assert.equal(formatPageNumber(4), '4');
+    assert.equal(formatPageNumber(4, 'upperRoman'), 'IV');
+    assert.equal(formatPageNumber(9, 'lowerRoman'), 'ix');
+    assert.equal(formatPageNumber(27, 'upperLetter'), 'AA');
+    assert.equal(formatPageNumber(3, 'lowerLetter'), 'c');
+  });
+
+  it('能清理复杂域中的静态缓存数字（如每页重复的 5）并保留原 run 样式', async () => {
+    const {
+      DOCX_NUMPAGES_FIELD_TOKEN,
+      DOCX_PAGE_FIELD_TOKEN,
+      DOCX_SECTION_END_CLASS_PREFIX,
+      preprocessDocxPageFields,
+      rewriteParagraphPageFields,
+    } = await import('../src/utils/docxPageFields.ts');
+
+    const cachedPageRun = {
+      type: 'run',
+      cssStyle: { 'font-size': '10.5pt' },
+      children: [{ type: 'text', text: '5' }],
+    };
+    const paragraphChildren = [
+      { type: 'run', fieldRun: true, children: [{ type: 'complexField', charType: 'begin' }] },
+      { type: 'run', fieldRun: true, children: [{ type: 'instruction', text: ' PAGE ' }] },
+      { type: 'run', fieldRun: true, children: [{ type: 'complexField', charType: 'separate' }] },
+      cachedPageRun,
+      { type: 'run', children: [{ type: 'text', text: 'extra' }] },
+      { type: 'run', fieldRun: true, children: [{ type: 'complexField', charType: 'end' }] },
+      { type: 'run', children: [{ type: 'text', text: ' / ' }] },
+      { type: 'simpleField', instruction: ' NUMPAGES \\* MERGEFORMAT ' },
+    ];
+
+    assert.equal(rewriteParagraphPageFields(paragraphChildren), true);
+    assert.equal(cachedPageRun.cssStyle['font-size'], '10.5pt');
+    assert.equal(cachedPageRun.children[0].text, DOCX_PAGE_FIELD_TOKEN);
+    // 额外的缓存 run 应被移除，避免残留数字或文本
+    assert.equal(
+      paragraphChildren.some((n) => n?.children?.[0]?.text === 'extra'),
+      false,
+    );
+    assert.equal(
+      paragraphChildren.some((n) => n?.children?.[0]?.text === DOCX_NUMPAGES_FIELD_TOKEN),
+      true,
+    );
+
+    const mockDoc = {
+      parts: [
+        {
+          rootElement: {
+            type: 'footer',
+            children: [
+              {
+                type: 'table',
+                children: [
+                  {
+                    type: 'tableRow',
+                    children: [
+                      {
+                        type: 'tableCell',
+                        children: [
+                          {
+                            type: 'paragraph',
+                            children: [
+                              { type: 'run', fieldRun: true, children: [{ type: 'complexField', charType: 'begin' }] },
+                              { type: 'run', fieldRun: true, children: [{ type: 'instruction', text: 'PAGE' }] },
+                              { type: 'run', fieldRun: true, children: [{ type: 'complexField', charType: 'end' }] },
+                            ],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      documentPart: {
+        body: {
+          children: [
+            {
+              type: 'paragraph',
+              sectionProps: { pageNumber: { format: 'decimal', start: 1 } },
+              children: [],
+            },
+          ],
+          props: {
+            pageNumber: { format: 'decimal', start: 1 },
+          },
+        },
+      },
+    };
+
+    const configs = preprocessDocxPageFields(mockDoc);
+    assert.equal(configs.length, 2);
+    assert.equal(configs[1].start, 1);
+    assert.equal(
+      mockDoc.documentPart.body.children[0].className,
+      `${DOCX_SECTION_END_CLASS_PREFIX}0`,
+    );
+    const cellParaChildren =
+      mockDoc.parts[0].rootElement.children[0].children[0].children[0].children[0].children;
+    assert.equal(cellParaChildren.at(-1).children[0].text, DOCX_PAGE_FIELD_TOKEN);
+  });
+
+  it('能修复 titlePage 首页空页脚回退并沿样式继承链收集页脚制表位', async () => {
+    const {
+      DOCX_TAB_PARA_CLASS_PREFIX,
+      collectDocxTabStops,
+      patchTitlePageMissingFirstRefs,
+    } = await import('../src/utils/docxPageFields.ts');
+
+    const sectWithTitlePage = {
+      titlePage: true,
+      footerRefs: [{ id: 'rId1', type: 'default' }],
+      headerRefs: [
+        { id: 'rId2', type: 'default' },
+        { id: 'rId3', type: 'first' },
+      ],
+    };
+    patchTitlePageMissingFirstRefs(sectWithTitlePage);
+    assert.equal(
+      sectWithTitlePage.footerRefs.some((r) => r.type === 'first'),
+      true,
+    );
+    assert.equal(sectWithTitlePage.headerRefs.length, 2);
+
+    const mockDoc = {
+      settingsPart: { settings: { defaultTabStop: '21pt' } },
+      stylesPart: {
+        styles: [
+          {
+            id: 'FooterBase',
+            paragraphProps: {
+              tabs: [
+                { position: '207.65pt', style: 'center' },
+                { position: '415.3pt', style: 'right' },
+              ],
+            },
+          },
+          { id: 'Footer', basedOn: 'FooterBase', paragraphProps: {} },
+        ],
+      },
+      parts: [
+        {
+          rootElement: {
+            type: 'footer',
+            children: [
+              {
+                type: 'paragraph',
+                styleName: 'Footer',
+                children: [
+                  { type: 'run', children: [{ type: 'tab' }] },
+                  { type: 'run', children: [{ type: 'text', text: '1' }] },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    const tabCtx = collectDocxTabStops(mockDoc);
+    assert.equal(tabCtx.defaultTabStop, '21pt');
+    assert.equal(tabCtx.tabParagraphs.size, 1);
+    const para = mockDoc.parts[0].rootElement.children[0];
+    assert.match(para.className, new RegExp(`^${DOCX_TAB_PARA_CLASS_PREFIX}0$`));
+    assert.equal(tabCtx.tabParagraphs.get(`${DOCX_TAB_PARA_CLASS_PREFIX}0`)?.[0]?.style, 'center');
+  });
+
+  it('能为非连续分节符补充分页标记并提取页脚 framePr 居中对齐', async () => {
+    const {
+      applyFrameAlignmentsToParagraphs,
+      ensureSectionBreakPageBreak,
+      extractFrameAlignmentsFromXml,
+    } = await import('../src/utils/docxPageFields.ts');
+
+    const nextPageSectPara = { type: 'paragraph', sectionProps: {}, children: [] };
+    const continuousSectPara = {
+      type: 'paragraph',
+      sectionProps: { type: 'continuous' },
+      children: [],
+    };
+    ensureSectionBreakPageBreak(nextPageSectPara);
+    ensureSectionBreakPageBreak(continuousSectPara);
+
+    assert.equal(nextPageSectPara.children.length, 1);
+    assert.equal(nextPageSectPara.children[0].children[0].break, 'page');
+    assert.equal(continuousSectPara.children.length, 0);
+
+    const footerXml = `<?xml version="1.0" encoding="UTF-8"?>
+      <w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:p><w:pPr><w:framePr w:wrap="around" w:vAnchor="text" w:hAnchor="margin" w:xAlign="center" w:y="1"/></w:pPr><w:r><w:t>5</w:t></w:r></w:p>
+        <w:p><w:pPr><w:jc w:val="right"/></w:pPr></w:p>
+      </w:ftr>`;
+    const aligns = extractFrameAlignmentsFromXml(footerXml);
+    assert.deepEqual(aligns, ['center', null]);
+
+    const paras = [{ type: 'paragraph', cssStyle: {} }, { type: 'paragraph', cssStyle: { 'text-align': 'right' } }];
+    applyFrameAlignmentsToParagraphs(paras, aligns);
+    assert.equal(paras[0].cssStyle['text-align'], 'center');
+    assert.equal(paras[1].cssStyle['text-align'], 'right');
+  });
+
+  it('能剥离分节符后首段前导空白 lastRenderedPageBreak 避免多出空白页', async () => {
+    const { stripLeadingPageBreakIfEmptyBefore } = await import('../src/utils/docxPageFields.ts');
+
+    const leadingBreakPara = {
+      type: 'paragraph',
+      children: [
+        {
+          type: 'run',
+          children: [
+            { type: 'break', break: 'lastRenderedPageBreak' },
+            { type: 'text', text: '正文标题' },
+          ],
+        },
+      ],
+    };
+    stripLeadingPageBreakIfEmptyBefore(leadingBreakPara);
+    assert.equal(leadingBreakPara.children[0].children.length, 1);
+    assert.equal(leadingBreakPara.children[0].children[0].text, '正文标题');
+
+    const midBreakPara = {
+      type: 'paragraph',
+      children: [
+        {
+          type: 'run',
+          children: [
+            { type: 'text', text: '前半句' },
+            { type: 'break', break: 'lastRenderedPageBreak' },
+            { type: 'text', text: '后半句' },
+          ],
+        },
+      ],
+    };
+    stripLeadingPageBreakIfEmptyBefore(midBreakPara);
+    assert.equal(midBreakPara.children[0].children.length, 3);
+  });
+});
+
+describe('POST /api/fs/reveal 在文件资源管理器中定位文件测试', () => {
+  it('校验路径安全后调用 revealFile，拒绝越权路径', async () => {
+    const { startServer } = await import('../server/index.mjs');
+
+    const rootDir = mkdtempSync(join(tmpdir(), 'fp-reveal-'));
+    const sampleFile = join(rootDir, 'demo.docx');
+    writeFileSync(sampleFile, 'docx-placeholder');
+
+    const revealed = [];
+    const prevPort = process.env.ANTIGRAVITY_SIDECAR_WEB_PORT;
+    const prevToken = process.env.ANTIGRAVITY_SIDECAR_UI_TOKEN;
+    process.env.ANTIGRAVITY_SIDECAR_WEB_PORT = '0';
+    process.env.ANTIGRAVITY_SIDECAR_UI_TOKEN = 'reveal-test-token';
+
+    const running = await startServer({
+      allowedRootsOverride: [rootDir],
+      revealFile: (p) => revealed.push(p),
+    });
+
+    try {
+      const addr = running.server.address();
+      const baseUrl = `http://127.0.0.1:${addr.port}`;
+
+      const okRes = await fetch(`${baseUrl}/api/fs/reveal`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Sidecar-Token': 'reveal-test-token',
+        },
+        body: JSON.stringify({ file: sampleFile }),
+      });
+      assert.equal(okRes.status, 200);
+      const okJson = await okRes.json();
+      assert.equal(okJson.ok, true);
+      assert.equal(revealed.length, 1);
+
+      const denyRes = await fetch(`${baseUrl}/api/fs/reveal`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Sidecar-Token': 'reveal-test-token',
+        },
+        body: JSON.stringify({ file: join(rootDir, '..', 'outside.docx') }),
+      });
+      assert.equal(denyRes.status, 403);
+      assert.equal(revealed.length, 1);
+    } finally {
+      await running.close();
+      if (prevPort === undefined) delete process.env.ANTIGRAVITY_SIDECAR_WEB_PORT;
+      else process.env.ANTIGRAVITY_SIDECAR_WEB_PORT = prevPort;
+      if (prevToken === undefined) delete process.env.ANTIGRAVITY_SIDECAR_UI_TOKEN;
+      else process.env.ANTIGRAVITY_SIDECAR_UI_TOKEN = prevToken;
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+});
+
 
 

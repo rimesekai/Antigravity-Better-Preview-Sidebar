@@ -31,6 +31,15 @@ const DEFAULT_LIMIT = 200;
 const HARD_COLLECT_CAP = 2000;
 
 /**
+ * 判断文件名是否为 Office 临时锁文件或系统隐藏元数据文件（如 ~$*.docx、.~lock.*、._*）。
+ * @param {string} name
+ * @returns {boolean}
+ */
+function isIgnoredTempFile(name) {
+  return name.startsWith('~$') || name.startsWith('.~') || name.startsWith('._');
+}
+
+/**
  * 递归扫描工作区中的可预览文件（.pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html / .htm）。
  * @param {string[] | string} [workspaceUris]
  * @param {object} [options]
@@ -118,12 +127,13 @@ export function scanWorkspaceFiles(workspaceUris = [], options = {}) {
 
       if (entry.isDirectory()) {
         if (depth >= maxDepth) continue;
-        if (SKIP_DIRS.has(entry.name.toLowerCase())) continue;
+        if (entry.name.startsWith('.') || SKIP_DIRS.has(entry.name.toLowerCase())) continue;
         walkDirectory(fullPath, rootDir, depth + 1);
         continue;
       }
 
       if (!entry.isFile()) continue;
+      if (isIgnoredTempFile(entry.name)) continue;
 
       const ext = extname(entry.name).toLowerCase();
       const kind = SUPPORTED_EXTS.get(ext);

@@ -1,6 +1,7 @@
+import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve, win32 } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { SidecarApp, Response } from 'sidecar_sdk';
 import { closeHtmlServer, mountHtmlTarget, mountPdfTarget, mountVideoTarget } from './htmlServer.mjs';
@@ -21,6 +22,33 @@ function getReadLimitBytes(kind) {
     return MAX_PARSED_READ_BYTES;
   }
   return MAX_TEXT_READ_BYTES;
+}
+
+function revealFileInExplorer(targetPath) {
+  if (process.platform === 'win32') {
+    const winPath = win32.normalize(targetPath).replaceAll('"', '');
+    const child = spawn('explorer.exe', [`/select,"${winPath}"`], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: false,
+      windowsVerbatimArguments: true,
+    });
+    child.unref();
+    return;
+  }
+  if (process.platform === 'darwin') {
+    const child = spawn('open', ['-R', targetPath], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+    return;
+  }
+  const child = spawn('xdg-open', [dirname(targetPath)], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
 }
 
 /**
@@ -149,6 +177,7 @@ export function registerRoutes(app, options = {}) {
   const mountHtml = options.mountHtml || mountHtmlTarget;
   const mountPdf = options.mountPdf || mountPdfTarget;
   const mountVideo = options.mountVideo || mountVideoTarget;
+  const revealFile = options.revealFile || revealFileInExplorer;
   const allowedRootsOverride = options.allowedRootsOverride || null;
 
   // 静态页面与脚本资源路由（SidecarApp 为精确匹配）
@@ -230,6 +259,20 @@ export function registerRoutes(app, options = {}) {
     withErrorHandling((data) => {
       const files = scanWorkspaceFiles(data.workspaceUris);
       return { files };
+    }, ResponseClass),
+    'POST',
+  );
+
+  // 在系统文件资源管理器中定位并选中指定文件
+  app.api(
+    '/api/fs/reveal',
+    withErrorHandling((data) => {
+      const info = validateFilePath(data.file, {
+        workspaceUris: data.workspaceUris,
+        allowedRootsOverride,
+      });
+      revealFile(info.path);
+      return { ok: true, path: info.path };
     }, ResponseClass),
     'POST',
   );

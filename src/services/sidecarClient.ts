@@ -278,6 +278,31 @@ export async function listWorkspaceFiles(): Promise<WorkspaceFileItem[]> {
 }
 
 /**
+ * 在系统文件资源管理器中定位并选中指定磁盘文件。
+ */
+export async function revealFileInExplorer(file: string): Promise<void> {
+  const workspaceUris = await getWorkspaceUrisSafe();
+  try {
+    await postJson<{ ok: boolean }>('/api/fs/reveal', {
+      file,
+      workspaceUris,
+    });
+  } catch (err) {
+    if (err instanceof SidecarApiError && err.status === 404 && err.code === 'HTTP_404') {
+      throw new SidecarApiError(
+        404,
+        'SIDECAR_OUTDATED',
+        tr(
+          '后台服务尚未加载新接口，请重启 Antigravity 后再试。',
+          'Backend service has not loaded the new endpoint yet. Please restart Antigravity.',
+        ),
+      );
+    }
+    throw err;
+  }
+}
+
+/**
  * 将本地 HTML 文件挂载到独立跨源预览端口，返回可加载的 URL 与挂载信息。
  */
 export async function mountHtmlFile(file: string): Promise<HtmlMountInfo> {

@@ -41,6 +41,7 @@ export interface ToolbarRenderState {
 export interface ToolbarCallbacks {
   onToggleDrawer: () => void;
   onRefresh: () => void;
+  onRevealInExplorer?: () => void;
   onToggleAutoRefresh: () => void;
   onCycleTheme?: () => void;
   onCycleLocale?: () => void;
@@ -262,6 +263,19 @@ export function createToolbar(
   const rightGroup = document.createElement('div');
   rightGroup.className = 'fp-toolbar-group fp-toolbar-right';
 
+  const revealBtn = document.createElement('button');
+  revealBtn.type = 'button';
+  revealBtn.className = 'fp-btn fp-btn-ghost fp-btn-icon-label';
+  revealBtn.title = '在文件资源管理器中查看';
+  revealBtn.appendChild(
+    createSvgIcon('M2.2 4.5a1.3 1.3 0 0 1 1.3-1.3h3l1.4 1.6h4.6a1.3 1.3 0 0 1 1.3 1.3v5.4a1.3 1.3 0 0 1-1.3 1.3h-9a1.3 1.3 0 0 1-1.3-1.3z'),
+  );
+  const revealLabel = document.createElement('span');
+  revealLabel.className = 'fp-hide-xs';
+  revealLabel.textContent = '打开位置';
+  revealBtn.appendChild(revealLabel);
+  revealBtn.addEventListener('click', () => callbacks.onRevealInExplorer?.());
+
   const refreshBtn = document.createElement('button');
   refreshBtn.type = 'button';
   refreshBtn.className = 'fp-btn fp-btn-ghost fp-btn-icon-label';
@@ -296,7 +310,7 @@ export function createToolbar(
   langBtn.className = 'fp-btn fp-btn-ghost';
   langBtn.addEventListener('click', () => callbacks.onCycleLocale?.());
 
-  rightGroup.append(langBtn, themeBtn, refreshBtn, autoRefreshBtn);
+  rightGroup.append(langBtn, themeBtn, revealBtn, refreshBtn, autoRefreshBtn);
   primaryRow.append(leftGroup, rightGroup);
 
   // 第二行：格式专属工具条
@@ -627,6 +641,8 @@ export function createToolbar(
     drawerBtnText.textContent = tr('文件', 'Files');
     largePdfBadge.textContent = tr('>20MB 流式预览', '>20MB Streaming');
     dropTag.textContent = tr('本地拖入', 'Local Drop');
+    revealBtn.title = tr('在文件资源管理器中查看当前文件', 'Reveal current file in Explorer');
+    revealLabel.textContent = tr('打开位置', 'Reveal');
     refreshBtn.title = tr('立即重新加载当前文件', 'Reload current file');
     refreshLabel.textContent = tr('刷新', 'Refresh');
     autoText.textContent = tr('自动刷新', 'Auto Refresh');
@@ -696,6 +712,7 @@ export function createToolbar(
     }
 
     const isDiskFile = Boolean(file && !file.isLocalDrop);
+    revealBtn.disabled = !isDiskFile;
     refreshBtn.disabled = !isDiskFile || state.loading;
     autoRefreshBtn.disabled = !isDiskFile;
     autoRefreshBtn.classList.toggle('is-active', isDiskFile && state.autoRefresh);

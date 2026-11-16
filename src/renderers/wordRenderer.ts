@@ -1,8 +1,15 @@
-import { renderAsync } from 'docx-preview';
+import { parseAsync, renderDocument } from 'docx-preview';
 import type {
   PreviewRenderer,
   PreviewStateInfo,
 } from '../types/preview';
+import {
+  applyHeaderFooterFrameAlignment,
+  collectDocxTabStops,
+  preprocessDocxPageFields,
+  recalculateDocxTabStops,
+  resolveDocxPageFields,
+} from '../utils/docxPageFields';
 import { createDragPanner, type DragPannerController } from '../utils/dragPanner';
 import { tr } from '../utils/i18n';
 
@@ -10,6 +17,7 @@ const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2.0;
 const MAX_WORD_MATCHES = 2000;
 const FAR_SECTION_JUMP = 4;
+const MATHML_NS = 'http://www.w3.org/1998/Math/MathML';
 const BLOCK_CONTAINER_TAGS = new Set([
   'P',
   'DIV',
@@ -56,6 +64,30 @@ function clamp(value: number, min: number, max: number): number {
 
 function roundZoom(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/**
+ * 规范化 docx-preview 生成的 MathML DOM：
+ * docx-preview 会将 OMML 的 m:sup / m:sub / m:deg 映射为 <mn>，将 m:fName 映射为 <ms>，
+ * 在 Chromium MathML Core 中，token 元素（<mn>/<ms>/<mo>/<mi>）内嵌子元素会导致垂直堆叠
+ * （例如 10^-5 中的负号跑到 5 正上方）。此处将包含子元素的 token 容器替换为 <mrow>。
+ */
+function normalizeDocxMathMl(container: HTMLElement): void {
+  const tokenElements = container.querySelectorAll('math mn, math ms, math mo, math mi');
+  // 逆序遍历确保先替换内层再替换外层
+  for (let i = tokenElements.length - 1; i >= 0; i -= 1) {
+    const el = tokenElements[i];
+    if (el.children.length === 0) continue;
+
+    const mrow = document.createElementNS(MATHML_NS, 'mrow');
+    for (const attr of Array.from(el.attributes)) {
+      mrow.setAttribute(attr.name, attr.value);
+    }
+    while (el.firstChild) {
+      mrow.appendChild(el.firstChild);
+    }
+    el.replaceWith(mrow);
+  }
 }
 
 export function createWordRenderer(): PreviewRenderer {
@@ -395,7 +427,7 @@ export function createWordRenderer(): PreviewRenderer {
       scaleLayerEl.style.transform = 'scale(1)';
     }
 
-    await renderAsync(lastBuffer, stageEl, undefined, {
+    const docxOptions = {
       inWrapper: true,
       breakPages: true,
       ignoreLastRenderedPageBreak: false,
@@ -404,11 +436,33 @@ export function createWordRenderer(): PreviewRenderer {
       renderFootnotes: true,
       renderEndnotes: true,
       useBase64URL: false,
-    });
+    };
 
+    const doc = await parseAsync(lastBuffer, docxOptions);
     if (destroyed || gen !== loadGeneration) {
       return;
     }
+
+    const sectionPageConfigs = preprocessDocxPageFields(doc);
+    await applyHeaderFooterFrameAlignment(doc);
+    if (destroyed || gen !== loadGeneration) {
+      return;
+    }
+
+    const tabStopContext = collectDocxTabStops(doc);
+    const renderedNodes = await renderDocument(doc, docxOptions);
+    if (destroyed || gen !== loadGeneration) {
+      return;
+    }
+
+    stageEl.innerHTML = '';
+    for (const node of renderedNodes) {
+      stageEl.appendChild(node);
+    }
+
+    resolveDocxPageFields(stageEl, sectionPageConfigs);
+    recalculateDocxTabStops(stageEl, tabStopContext);
+    normalizeDocxMathMl(stageEl);
 
     if (preserveViewState && searchQuery) {
       applySearchHighlights(searchQuery);

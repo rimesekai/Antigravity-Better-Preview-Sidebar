@@ -23,6 +23,7 @@ import {
   mountVideoFile,
   readFileBuffer,
   readFileText,
+  revealFileInExplorer,
   statFile,
 } from './services/sidecarClient';
 import {
@@ -272,6 +273,17 @@ function bootstrap(): void {
     onRefresh: () => {
       if (currentSource?.type === 'disk') {
         void openDiskFile(currentSource.path, { isRefresh: true });
+      }
+    },
+    onRevealInExplorer: () => {
+      if (currentSource?.type === 'disk') {
+        void revealFileInExplorer(currentSource.path).catch((err) => {
+          const detail = err instanceof Error ? err.message : String(err);
+          showToast(
+            tr(`打开文件位置失败：${detail}`, `Failed to reveal file: ${detail}`),
+            true,
+          );
+        });
       }
     },
     onToggleAutoRefresh: () => {
