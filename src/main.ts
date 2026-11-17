@@ -983,9 +983,12 @@ function bootstrap(): void {
     }
   });
 
-  // 自动刷新监听（每 2.5s 检查一次磁盘文件 mtimeMs）
-  const pollTimer = window.setInterval(async () => {
+  // 检查当前磁盘文件是否有更新（结合 Page Visibility，后台/折叠时休眠节流）
+  async function checkDiskFileUpdate(): Promise<void> {
     if (!autoRefreshEnabled || isLoading || isPollingStat) {
+      return;
+    }
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
       return;
     }
     if (currentSource?.type !== 'disk' || currentSource.stat.mtimeMs <= 0) {
@@ -1011,7 +1014,21 @@ function bootstrap(): void {
     } finally {
       isPollingStat = false;
     }
+  }
+
+  // 自动刷新监听（每 2.5s 检查一次磁盘文件 mtimeMs，前台可见时生效）
+  const pollTimer = window.setInterval(() => {
+    void checkDiskFileUpdate();
   }, AUTO_REFRESH_INTERVAL_MS);
+
+  // 页面从后台恢复可见或窗口聚焦时，立即触发一次静默检查，无需等待 2.5s 计时器
+  const handleVisibilityOrFocus = (): void => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      void checkDiskFileUpdate();
+    }
+  };
+  document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+  window.addEventListener('focus', handleVisibilityOrFocus);
 
   // 启动主题、语言与工作区事件同步
   const stopThemeSync = startThemeSync();
@@ -1028,6 +1045,8 @@ function bootstrap(): void {
 
   window.addEventListener('beforeunload', () => {
     window.clearInterval(pollTimer);
+    document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.removeEventListener('focus', handleVisibilityOrFocus);
     if (toastTimer !== null) {
       window.clearTimeout(toastTimer);
       toastTimer = null;
