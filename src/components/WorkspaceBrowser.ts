@@ -69,7 +69,7 @@ function getKindShortLabel(kind: PreviewKind, ext: string): string {
   }
   if (kind === 'pdf') return 'PDF';
   if (kind === 'mp4') return 'MP4';
-  return ext.toLowerCase() === '.htm' ? 'HTM' : 'HTM';
+  return ext.toLowerCase() === '.htm' ? 'HTM' : 'HTML';
 }
 
 /**
@@ -318,7 +318,7 @@ export function createWorkspaceBrowser(
     }
   };
 
-  const filterKeys: BrowserKindFilter[] = ['all', 'ppt', 'word', 'excel', 'pdf', 'mp4', 'html'];
+  const filterKeys: BrowserKindFilter[] = ['all', 'html', 'pdf', 'word', 'excel', 'ppt', 'mp4'];
   const filterButtons = new Map<
     BrowserKindFilter,
     { btn: HTMLButtonElement; label: HTMLSpanElement; count: HTMLSpanElement }
