@@ -257,7 +257,11 @@ export function registerRoutes(app, options = {}) {
   app.api(
     '/api/fs/list',
     withErrorHandling((data) => {
-      const files = scanWorkspaceFiles(data.workspaceUris);
+      const files = scanWorkspaceFiles(data.workspaceUris, {
+        currentFile: data.currentFile,
+        maxDepth: data.maxDepth,
+        limit: data.limit,
+      });
       return { files };
     }, ResponseClass),
     'POST',

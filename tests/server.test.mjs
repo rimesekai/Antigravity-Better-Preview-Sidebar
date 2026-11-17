@@ -557,6 +557,7 @@ describe('workspaceScanner 工作区扫描测试', () => {
     writeFileSync(join(tempRoot, 'docs', 'budget.xlsx'), 'xlsx');
     writeFileSync(join(tempRoot, 'docs', 'data.csv'), 'col1,col2\n1,2\n');
     writeFileSync(join(tempRoot, 'docs', 'manual.pdf'), '%PDF-1.7');
+    writeFileSync(join(tempRoot, 'docs', 'readme.html'), '<h1>doc</h1>');
     writeFileSync(join(tempRoot, 'index.htm'), '<h1>hi</h1>');
     writeFileSync(join(tempRoot, 'node_modules', 'pkg', 'ignored.html'), '<p>ignore</p>');
     writeFileSync(join(tempRoot, 'dist', 'ignored.html'), '<p>ignore</p>');
@@ -580,6 +581,7 @@ describe('workspaceScanner 工作区扫描测试', () => {
       'docs/budget.xlsx',
       'docs/data.csv',
       'docs/manual.pdf',
+      'docs/readme.html',
       'docs/sub/b.pptx',
       'index.htm',
     ]);
@@ -588,6 +590,86 @@ describe('workspaceScanner 工作区扫描测试', () => {
     const csvItem = files.find((f) => f.relPath === 'docs/data.csv');
     assert.equal(xlsxItem?.kind, 'excel');
     assert.equal(csvItem?.kind, 'excel');
+  });
+
+  it('支持 HTML/HTM 格式检测并归类为 html kind', () => {
+    const files = scanWorkspaceFiles([pathToFileURL(tempRoot).href]);
+    const htmlItem = files.find((f) => f.relPath === 'docs/readme.html');
+    const htmItem = files.find((f) => f.relPath === 'index.htm');
+
+    assert.ok(htmlItem, '应扫描出 .html 文件');
+    assert.equal(htmlItem.kind, 'html');
+    assert.equal(htmlItem.ext, '.html');
+
+    assert.ok(htmItem, '应扫描出 .htm 文件');
+    assert.equal(htmItem.kind, 'html');
+    assert.equal(htmItem.ext, '.htm');
+  });
+
+  it('workspaceUris 为空或无有效目录时自动回退到 process.env.WORKSPACE_ROOT', () => {
+    const prevEnv = process.env.WORKSPACE_ROOT;
+    try {
+      process.env.WORKSPACE_ROOT = tempRoot;
+
+      // workspaceUris 为空数组
+      const filesFromEmpty = scanWorkspaceFiles([]);
+      assert.ok(filesFromEmpty.length > 0);
+      assert.ok(filesFromEmpty.some((f) => f.relPath === 'index.htm'));
+
+      // workspaceUris 为无效路径列表
+      const filesFromInvalid = scanWorkspaceFiles(['non/existent/path/for/test']);
+      assert.ok(filesFromInvalid.length > 0);
+      assert.ok(filesFromInvalid.some((f) => f.relPath === 'index.htm'));
+
+      // 验证 workspaceRoot 指向 tempRoot 真实路径
+      assert.equal(filesFromEmpty[0].workspaceRoot.toLowerCase(), tempRoot.toLowerCase());
+    } finally {
+      if (prevEnv === undefined) {
+        delete process.env.WORKSPACE_ROOT;
+      } else {
+        process.env.WORKSPACE_ROOT = prevEnv;
+      }
+    }
+  });
+
+  it('在无可用根目录时支持回退扫描 dirname(options.currentFile)（支持普通路径与 file:// URI）', () => {
+    const prevEnv = process.env.WORKSPACE_ROOT;
+    delete process.env.WORKSPACE_ROOT;
+
+    try {
+      const docHtmlPath = join(tempRoot, 'docs', 'readme.html');
+      const docHtmlUri = pathToFileURL(docHtmlPath).href;
+
+      // 1. 通过普通文件绝对路径作为 currentFile 回退扫描
+      const filesFromPath = scanWorkspaceFiles([], { currentFile: docHtmlPath });
+      const relPathsFromPath = filesFromPath.map((f) => f.relPath).sort();
+      assert.deepEqual(relPathsFromPath, [
+        'a.docx',
+        'budget.xlsx',
+        'data.csv',
+        'manual.pdf',
+        'readme.html',
+        'sub/b.pptx',
+      ]);
+      const htmlFromPath = filesFromPath.find((f) => f.relPath === 'readme.html');
+      assert.equal(htmlFromPath?.kind, 'html');
+
+      // 2. 通过 file:// URI 作为 currentFile 回退扫描
+      const filesFromUri = scanWorkspaceFiles([], { currentFile: docHtmlUri });
+      const relPathsFromUri = filesFromUri.map((f) => f.relPath).sort();
+      assert.deepEqual(relPathsFromUri, relPathsFromPath);
+
+      // 3. 打开顶级 index.htm 时，回退扫描 tempRoot 目录
+      const filesFromRootHtml = scanWorkspaceFiles([], { currentFile: join(tempRoot, 'index.htm') });
+      assert.ok(filesFromRootHtml.some((f) => f.relPath === 'index.htm'));
+      assert.ok(filesFromRootHtml.some((f) => f.relPath === 'docs/readme.html'));
+    } finally {
+      if (prevEnv === undefined) {
+        delete process.env.WORKSPACE_ROOT;
+      } else {
+        process.env.WORKSPACE_ROOT = prevEnv;
+      }
+    }
   });
 });
 
@@ -717,6 +799,18 @@ describe('SidecarApp HTTP 路由集成测试', () => {
     assert.equal(listRes.status, 200);
     const listJson = await listRes.json();
     assert.equal(listJson.files.length, 5);
+
+    const listCurrentFileRes = await fetch(`${baseUrl}/api/fs/list`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ workspaceUris: [], currentFile: join(workspaceDir, 'demo.html') }),
+    });
+    assert.equal(listCurrentFileRes.status, 200);
+    const listCurrentFileJson = await listCurrentFileRes.json();
+    assert.equal(listCurrentFileJson.files.length, 5);
+    const listedHtml = listCurrentFileJson.files.find((f) => f.name === 'demo.html');
+    assert.ok(listedHtml);
+    assert.equal(listedHtml.kind, 'html');
 
     const xlsxStatRes = await fetch(`${baseUrl}/api/fs/stat`, {
       method: 'POST',

@@ -1,5 +1,5 @@
 import { readdirSync, realpathSync, statSync } from 'node:fs';
-import { extname, join, relative, sep } from 'node:path';
+import { dirname, extname, join, relative, sep } from 'node:path';
 import { isForbiddenSystemPath, parseWorkspaceRoot } from './pathSecurity.mjs';
 
 const SKIP_DIRS = new Set([
@@ -43,6 +43,7 @@ function isIgnoredTempFile(name) {
  * 递归扫描工作区中的可预览文件（.pptx / .docx / .xlsx / .xls / .csv / .tsv / .pdf / .mp4 / .html / .htm）。
  * @param {string[] | string} [workspaceUris]
  * @param {object} [options]
+ * @param {string} [options.currentFile] 当前打开的文件路径或 URI，在无可用根目录时回退扫描其所在目录
  * @param {number} [options.maxDepth] 最大递归深度（默认 5）
  * @param {number} [options.limit] 返回条数上限（默认 200）
  * @returns {Array<{
@@ -69,23 +70,53 @@ export function scanWorkspaceFiles(workspaceUris = [], options = {}) {
   const uniqueRoots = [];
   const seenRootKeys = new Set();
 
-  for (const item of rawList) {
-    const parsed = parseWorkspaceRoot(item);
-    if (!parsed) continue;
+  function tryAddRoot(candidate) {
+    if (!candidate || typeof candidate !== 'string') return false;
+    const parsed = parseWorkspaceRoot(candidate);
+    if (!parsed) return false;
 
     let realRoot;
     try {
       realRoot = realpathSync(parsed);
       const stat = statSync(realRoot);
-      if (!stat.isDirectory()) continue;
+      if (!stat.isDirectory()) return false;
     } catch {
-      continue;
+      return false;
     }
 
+    if (isForbiddenSystemPath(realRoot)) return false;
+
     const key = process.platform === 'win32' ? realRoot.toLowerCase() : realRoot;
-    if (seenRootKeys.has(key)) continue;
+    if (seenRootKeys.has(key)) return true;
     seenRootKeys.add(key);
     uniqueRoots.push(realRoot);
+    return true;
+  }
+
+  for (const item of rawList) {
+    tryAddRoot(item);
+  }
+
+  // 当传入的 workspaceUris 为空或没有有效目录时，自动回退到 process.env.WORKSPACE_ROOT
+  if (uniqueRoots.length === 0 && process.env.WORKSPACE_ROOT) {
+    tryAddRoot(process.env.WORKSPACE_ROOT);
+  }
+
+  // 如果同时传入了 options.currentFile，在无可用根目录时支持回退扫描 dirname(options.currentFile)
+  if (uniqueRoots.length === 0 && options.currentFile && typeof options.currentFile === 'string') {
+    const parsedFile = parseWorkspaceRoot(options.currentFile);
+    if (parsedFile) {
+      let candidateDir = dirname(parsedFile);
+      try {
+        const stat = statSync(parsedFile);
+        if (stat.isDirectory()) {
+          candidateDir = parsedFile;
+        }
+      } catch {
+        // 若目标路径不是已存在文件或 stat 失败，仍尝试以其父目录作为候选
+      }
+      tryAddRoot(candidateDir);
+    }
   }
 
   const results = [];
