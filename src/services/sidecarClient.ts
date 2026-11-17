@@ -40,7 +40,11 @@ let cachedWorkspaceUris: string[] | null = null;
  * 供主题/工作区同步模块写入最新推送的工作区 URI 列表。
  */
 export function updateCachedWorkspaceUris(uris: string[]): void {
-  cachedWorkspaceUris = Array.isArray(uris) ? [...uris] : [];
+  if (Array.isArray(uris) && uris.length > 0) {
+    cachedWorkspaceUris = [...uris];
+  } else {
+    cachedWorkspaceUris = null;
+  }
 }
 
 function getSidecarBridge(): SidecarBridgeLike | undefined {
@@ -58,9 +62,10 @@ function getUrlToken(): string | null {
 
 /**
  * 安全获取当前会话工作区 URI 列表；非 plugin:// 环境或异常时返回空数组而不抛出错误。
+ * 当获取为空或超时，不永久缓存空数组，避免首次启动宿主 bridge 延迟导致后续无法获取工作区。
  */
 export async function getWorkspaceUrisSafe(): Promise<string[]> {
-  if (cachedWorkspaceUris !== null) {
+  if (cachedWorkspaceUris !== null && cachedWorkspaceUris.length > 0) {
     return [...cachedWorkspaceUris];
   }
 
@@ -74,11 +79,11 @@ export async function getWorkspaceUrisSafe(): Promise<string[]> {
       window.setTimeout(() => resolve([]), 1200);
     });
     const uris = await Promise.race([bridge.getWorkspaceUris(), timeoutFallback]);
-    if (Array.isArray(uris)) {
+    if (Array.isArray(uris) && uris.length > 0) {
       cachedWorkspaceUris = [...uris];
       return [...uris];
     }
-    return [];
+    return Array.isArray(uris) ? [...uris] : [];
   } catch {
     return [];
   }
@@ -268,12 +273,18 @@ export async function readFileText(file: string): Promise<string> {
 
 /**
  * 扫描当前工作区中所有可预览文档。
+ * 支持传入 currentFile 当前打开的文件路径，以便在无显式工作区时服务端回退扫描其所在目录。
  */
-export async function listWorkspaceFiles(): Promise<WorkspaceFileItem[]> {
+export async function listWorkspaceFiles(currentFile?: string | null): Promise<WorkspaceFileItem[]> {
   const workspaceUris = await getWorkspaceUrisSafe();
-  const data = await postJson<{ files?: WorkspaceFileItem[] }>('/api/fs/list', {
+  const body: Record<string, unknown> = {
     workspaceUris,
-  });
+  };
+  const trimmed = typeof currentFile === 'string' ? currentFile.trim() : '';
+  if (trimmed) {
+    body.currentFile = trimmed;
+  }
+  const data = await postJson<{ files?: WorkspaceFileItem[] }>('/api/fs/list', body);
   return Array.isArray(data.files) ? data.files : [];
 }
 

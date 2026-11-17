@@ -278,7 +278,7 @@ function bootstrap(): void {
         selectionToolbar.clearSentMark();
       }
       if (drawerOpen && workspaceFiles.length === 0 && !workspaceLoading) {
-        void refreshWorkspaceList();
+        void refreshWorkspaceList(currentSource?.type === 'disk' ? currentSource.path : null);
       }
       syncUi();
     },
@@ -368,7 +368,7 @@ function bootstrap(): void {
       void openLocalDroppedFile(file);
     },
     onRefreshList: () => {
-      void refreshWorkspaceList();
+      void refreshWorkspaceList(currentSource?.type === 'disk' ? currentSource.path : null);
     },
     onCloseDrawer: () => {
       drawerOpen = false;
@@ -676,13 +676,17 @@ function bootstrap(): void {
     syncUi();
   }
 
-  async function refreshWorkspaceList(): Promise<void> {
+  async function refreshWorkspaceList(targetFile?: string | null): Promise<void> {
     workspaceLoading = true;
     workspaceError = null;
     syncUi();
 
     try {
-      workspaceFiles = await listWorkspaceFiles();
+      const activeDiskPath =
+        (typeof targetFile === 'string' && targetFile.trim())
+          ? targetFile.trim()
+          : (currentSource?.type === 'disk' ? currentSource.path : null);
+      workspaceFiles = await listWorkspaceFiles(activeDiskPath);
     } catch (err) {
       workspaceError =
         err instanceof SidecarApiError
@@ -805,6 +809,9 @@ function bootstrap(): void {
       isLoading = false;
       syncUi();
       selectionToolbar.refresh();
+      if (workspaceFiles.length === 0 && !workspaceLoading) {
+        void refreshWorkspaceList(stat.path);
+      }
     } catch (err) {
       if (reqId !== loadRequestSeq) return;
       if (options.isAutoRefresh) {
@@ -1016,7 +1023,7 @@ function bootstrap(): void {
     syncUi();
   });
   const stopWorkspaceSync = subscribeWorkspaceChanges(() => {
-    void refreshWorkspaceList();
+    void refreshWorkspaceList(currentSource?.type === 'disk' ? currentSource.path : null);
   });
 
   window.addEventListener('beforeunload', () => {
@@ -1040,7 +1047,7 @@ function bootstrap(): void {
   const initialFile = new URLSearchParams(window.location.search).get('file')?.trim();
   if (initialFile) {
     void openDiskFile(initialFile);
-    void refreshWorkspaceList();
+    void refreshWorkspaceList(initialFile);
   } else {
     syncUi();
     void refreshWorkspaceList();

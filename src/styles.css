@@ -1148,6 +1148,28 @@ textarea {
   display: none;
 }
 
+/* 抽屉模式与窄屏下允许 Tab 换行，彻底解决 370px 窄抽屉下单行溢出且因 scrollbar-width: none 导致 HTML / MP4 标签被截断隐藏的问题 */
+.fp-drawer-panel .fc-tablist.fp-filter-tabs,
+.fp-browser[data-mode="drawer"] .fc-tablist.fp-filter-tabs {
+  flex-wrap: wrap;
+  overflow-x: visible;
+  mask: none;
+  -webkit-mask: none;
+  animation: none;
+  scroll-snap-type: none;
+}
+
+@media (max-width: 480px) {
+  .fc-tablist.fp-filter-tabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    mask: none;
+    -webkit-mask: none;
+    animation: none;
+    scroll-snap-type: none;
+  }
+}
+
 .fc-tab {
   display: inline-flex;
   align-items: center;
