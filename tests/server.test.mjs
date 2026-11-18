@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   truncateSync,
@@ -15,6 +16,10 @@ import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import * as XLSX from 'xlsx';
+
+const PKG_VERSION = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+).version;
 
 // 注册轻量 sidecar_sdk mock，模拟 Antigravity 宿主注入的 SidecarApp 与 Response 精确行为
 registerHooks({
@@ -726,7 +731,7 @@ describe('SidecarApp HTTP 路由集成测试', () => {
   it('GET /api/health 与静态页面路由返回正确内容且静态缓存按 mtime 失效', async () => {
     const healthRes = await fetch(`${baseUrl}/api/health`);
     assert.equal(healthRes.status, 200);
-    assert.deepEqual(await healthRes.json(), { status: 'ok', version: '0.3.0' });
+    assert.deepEqual(await healthRes.json(), { status: 'ok', version: PKG_VERSION });
 
     const pageRes = await fetch(`${baseUrl}/`);
     assert.equal(pageRes.status, 200);

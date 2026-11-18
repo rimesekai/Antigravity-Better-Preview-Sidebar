@@ -8,7 +8,31 @@ import { closeHtmlServer, mountHtmlTarget, mountPdfTarget, mountVideoTarget } fr
 import { HttpError, validateFilePath } from './pathSecurity.mjs';
 import { scanWorkspaceFiles } from './workspaceScanner.mjs';
 
-const PLUGIN_VERSION = '0.3.0';
+/**
+ * 解析插件版本号。单一来源为根目录 package.json：
+ * - 构建产物 dist/server.mjs 由 build-server.mjs 通过 esbuild define 注入 __PLUGIN_VERSION__；
+ * - 直接以源码运行（开发/测试）时按相对路径回退读取清单文件，
+ *   兼容 dist/ 内运行（无 package.json 时回退 plugin.json）。
+ */
+function resolvePluginVersion() {
+  if (typeof __PLUGIN_VERSION__ === 'string') {
+    return __PLUGIN_VERSION__;
+  }
+  const here = dirname(fileURLToPath(import.meta.url));
+  for (const manifest of ['../package.json', 'plugin.json', '../plugin.json']) {
+    try {
+      const parsed = JSON.parse(readFileSync(resolve(here, manifest), 'utf8'));
+      if (typeof parsed.version === 'string' && parsed.version) {
+        return parsed.version;
+      }
+    } catch {
+      // 尝试下一个清单文件
+    }
+  }
+  return '0.0.0';
+}
+
+const PLUGIN_VERSION = resolvePluginVersion();
 const MAX_PARSED_READ_BYTES = 60 * 1024 * 1024; // 60 MB：Excel/PPT/Word 等需一次性载入渲染进程内存解析的格式上限
 const MAX_TEXT_READ_BYTES = 80 * 1024 * 1024; // 80 MB：其余由 /api/fs/read 直接读取的文件上限
 const MAX_PDF_BYTES = 1024 * 1024 * 1024; // 1 GB PDF 流式预览安全上限
