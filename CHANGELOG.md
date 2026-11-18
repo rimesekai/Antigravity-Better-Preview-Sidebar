@@ -1,5 +1,13 @@
 # 更新日志 / Changelog
 
+## [Unreleased]
+
+### 优化 / Improvements
+- **接入 FlClash `prism_ui` 动效与物理手感规范**：
+  - 在 [tokens.css](file:///D:/Antigravity-better-sidebar/src/styles/tokens.css) 补充 `--fc-ease-droplet`（`linear()` 21 点弹簧曲线及 `@supports` 降级）、`--fc-ease-push` 与 `--fc-duration-ink` / `tab` / `droplet` 时长 Token，对齐 `4% / 10%` 墨水叠加透明度；
+  - 为外观面板开关（`.fc-switch`）接入按住横向拉伸与液滴弹性回弹，为非禁用态按钮及分段控件补齐按压微缩回弹；
+  - 统一工作区文件列表行、开关行与 PPT/PDF 缩略图卡的 `200ms` 墨水叠加过渡（保持绝不缩放），并完善 `.fp-appearance-popover[popover]`、`dialog.fp-drawer-dialog` 的 Top Layer `@starting-style` / `allow-discrete` 进出动画与 `prefers-reduced-motion` 无障碍降级。
+
 ## v0.3.1 (2026-11-17)
 
 ### 修复与优化 / Fixes & Improvements
