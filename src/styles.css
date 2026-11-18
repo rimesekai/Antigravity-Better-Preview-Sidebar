@@ -205,10 +205,6 @@ textarea {
   flex: none;
 }
 
-.fc-chip--ok .fc-chip__dot {
-  animation: fp-pulse 2s ease-in-out infinite;
-}
-
 @keyframes fp-pulse {
   0%,
   100% {
@@ -307,7 +303,7 @@ textarea {
   left: 3px;
   width: 20px;
   height: 20px;
-  border-radius: 50%;
+  border-radius: var(--fc-radius-pill);
   background-color: light-dark(#ffffff, #e6e3df);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
 }
@@ -458,10 +454,6 @@ textarea {
   border-radius: 50%;
   background-color: var(--fc-primary);
   flex: none;
-}
-
-.is-spinning {
-  animation: fp-spin 0.8s linear infinite;
 }
 
 @keyframes fp-spin {
@@ -1327,6 +1319,18 @@ dialog.fp-drawer-dialog {
   max-height: none;
   background: transparent;
   overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--fc-duration-normal) var(--fc-ease-standard),
+    display var(--fc-duration-normal) var(--fc-ease-standard),
+    overlay var(--fc-duration-normal) var(--fc-ease-standard);
+  transition-behavior: allow-discrete;
+}
+
+dialog.fp-drawer-dialog[open] {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 dialog.fp-drawer-dialog:modal {
@@ -1334,8 +1338,27 @@ dialog.fp-drawer-dialog:modal {
 }
 
 dialog.fp-drawer-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.36);
+  background-color: rgba(0, 0, 0, 0);
   backdrop-filter: blur(4px);
+  transition:
+    background-color var(--fc-duration-normal) var(--fc-ease-standard),
+    display var(--fc-duration-normal) var(--fc-ease-standard),
+    overlay var(--fc-duration-normal) var(--fc-ease-standard);
+  transition-behavior: allow-discrete;
+}
+
+dialog.fp-drawer-dialog[open]::backdrop {
+  background-color: rgba(0, 0, 0, 0.36);
+}
+
+@starting-style {
+  dialog.fp-drawer-dialog[open] {
+    opacity: 0;
+  }
+
+  dialog.fp-drawer-dialog[open]::backdrop {
+    background-color: rgba(0, 0, 0, 0);
+  }
 }
 
 .fp-drawer-panel {
@@ -1380,6 +1403,22 @@ dialog.fp-drawer-dialog::backdrop {
 
 .fp-appearance-popover[popover] {
   inset: auto;
+  opacity: 0;
+  transition:
+    opacity var(--fc-duration-fast) var(--fc-ease-standard),
+    display var(--fc-duration-fast) var(--fc-ease-standard),
+    overlay var(--fc-duration-fast) var(--fc-ease-standard);
+  transition-behavior: allow-discrete;
+}
+
+.fp-appearance-popover[popover]:popover-open {
+  opacity: 1;
+}
+
+@starting-style {
+  .fp-appearance-popover[popover]:popover-open {
+    opacity: 0;
+  }
 }
 
 .fp-pop-header {
@@ -1603,7 +1642,6 @@ dialog.fp-drawer-dialog::backdrop {
   border-radius: 50%;
   border: 2.5px solid var(--fc-surface-inset);
   border-top-color: var(--fc-primary);
-  animation: fp-spin 0.75s linear infinite;
   flex: none;
 }
 
@@ -1866,16 +1904,16 @@ dialog.fp-drawer-dialog::backdrop {
 }
 
 /* ==========================================================================
- * 悬停与动效（按 modern-web-guidance 包裹 @media (hover: hover) 与 motion 查询）
+ * 悬停、按压墨水与物理动效（遵循 modern-web-guidance & FlClash prism_ui）
  * ========================================================================== */
 
 @media (hover: hover) {
-  .fc-icon-btn:hover {
+  .fc-icon-btn:hover:not(:disabled, [aria-disabled="true"]) {
     background-color: var(--fc-hover-overlay);
     color: var(--fc-on-surface);
   }
 
-  .fc-icon-btn--tonal:hover {
+  .fc-icon-btn--tonal:hover:not(:disabled, [aria-disabled="true"]) {
     background-color: var(--fc-surface-inset);
   }
 
@@ -1914,12 +1952,12 @@ dialog.fp-drawer-dialog::backdrop {
     background-color: var(--fc-hover-overlay);
   }
 
-  .fc-mini-screen-btn:hover:not([aria-pressed="true"]) {
-    background-color: var(--fc-surface-inset);
+  .fp-pop-switch-row:hover {
+    background-color: var(--fc-hover-overlay);
   }
 
-  .fc-swatch:hover {
-    transform: scale(1.08);
+  .fc-mini-screen-btn:hover:not([aria-pressed="true"]) {
+    background-color: var(--fc-surface-inset);
   }
 
   .fp-sel-btn:hover:not(:disabled) {
@@ -1927,26 +1965,113 @@ dialog.fp-drawer-dialog::backdrop {
   }
 }
 
-.fp-file-item:active {
+/* 按压墨水反馈（卡片与列表行只叠加墨水，绝不缩放） */
+.fc-icon-btn:not(:disabled, [aria-disabled="true"]):active,
+.fp-btn-ghost:not(:disabled, [aria-disabled="true"], [aria-pressed="true"], .is-active):active,
+.fp-btn-chip:not(:disabled, [aria-disabled="true"], [aria-pressed="true"], .is-active):active {
   background-color: var(--fc-press-overlay);
 }
 
+.fp-btn-tonal:not(:disabled, [aria-disabled="true"]):active,
+.fp-btn-secondary:not(:disabled, [aria-disabled="true"]):active,
+.fp-btn-files:not(:disabled, [aria-expanded="true"], .is-active):active {
+  background-color: color-mix(in srgb, var(--fc-surface-inset) 92%, var(--fc-on-surface));
+}
+
+.fp-file-item:active,
+.fp-pop-switch-row:active {
+  background-color: var(--fc-press-overlay);
+}
+
+.fc-mini-screen-btn:not([aria-pressed="true"]):active {
+  background-color: color-mix(in srgb, var(--fc-surface-block) 90%, var(--fc-on-surface));
+}
+
+/* 非位移类的颜色/透明度过渡始终保留，减少动态效果用户也能获得平滑色彩响应 */
+.fp-btn,
+.fc-icon-btn,
+.fp-seg-btn,
+.fc-segmented__btn,
+.fc-tab,
+.fp-sel-btn {
+  transition:
+    background-color var(--fc-duration-fast) var(--fc-ease-standard),
+    color var(--fc-duration-fast) var(--fc-ease-standard),
+    opacity var(--fc-duration-fast) var(--fc-ease-standard);
+}
+
+.fp-file-item,
+.fp-pop-switch-row,
+.fc-mini-screen-btn {
+  transition:
+    background-color var(--fc-duration-ink) var(--fc-ease-standard),
+    color var(--fc-duration-ink) var(--fc-ease-standard),
+    box-shadow var(--fc-duration-ink) var(--fc-ease-standard);
+}
+
+.fc-swatch svg {
+  transition: opacity var(--fc-duration-fast) var(--fc-ease-standard);
+}
+
+.fc-switch input[type="checkbox"] {
+  transition: background-color var(--fc-duration-fast) var(--fc-ease-standard);
+}
+
+.fp-welcome-host:not([hidden]),
+.fp-preview-host:not([hidden]),
+.fp-error-host:not([hidden]) {
+  animation: fp-fade-in var(--fc-duration-tab) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.fp-loading-overlay:not([hidden]),
+.fp-drop-overlay:not([hidden]) {
+  animation: fp-fade-in var(--fc-duration-fast) var(--fc-ease-standard);
+}
+
+@keyframes fp-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 空间位移、缩放、液滴弹簧与持续呼吸/旋转动画仅在无减少动态偏好时启用 */
 @media (prefers-reduced-motion: no-preference) {
   .fp-btn,
   .fc-icon-btn,
+  .fp-sel-btn,
   .fp-seg-btn,
   .fc-segmented__btn,
-  .fc-tab,
-  .fp-file-item,
-  .fc-mini-screen-btn {
+  .fc-tab {
     transition:
       background-color var(--fc-duration-fast) var(--fc-ease-standard),
       color var(--fc-duration-fast) var(--fc-ease-standard),
-      opacity var(--fc-duration-fast) var(--fc-ease-standard);
+      opacity var(--fc-duration-fast) var(--fc-ease-standard),
+      transform var(--fc-duration-normal) var(--fc-ease-droplet);
+  }
+
+  .fp-btn:not(:disabled, [aria-disabled="true"]):active,
+  .fc-icon-btn:not(:disabled, [aria-disabled="true"]):active,
+  .fp-sel-btn:not(:disabled, [aria-disabled="true"]):active {
+    transform: scale(0.96);
+  }
+
+  .fp-seg-btn:not(:disabled, [aria-disabled="true"]):active,
+  .fc-segmented__btn:not(:disabled, [aria-disabled="true"]):active,
+  .fc-tab:not(:disabled, [aria-disabled="true"]):active {
+    transform: scale(0.97);
   }
 
   .fc-swatch {
-    transition: transform var(--fc-duration-fast) var(--fc-ease-spring);
+    transition:
+      transform var(--fc-duration-normal) var(--fc-ease-droplet),
+      box-shadow var(--fc-duration-fast) var(--fc-ease-standard);
+  }
+
+  .fc-swatch:active {
+    transform: scale(0.94);
   }
 
   .fc-swatch svg {
@@ -1955,12 +2080,47 @@ dialog.fp-drawer-dialog::backdrop {
       transform var(--fc-duration-fast) var(--fc-ease-spring);
   }
 
-  .fc-switch input[type="checkbox"] {
-    transition: background-color var(--fc-duration-fast) var(--fc-ease-standard);
+  /* 液滴开关：按住横向拉伸 + 松手 dropletSpring 弹性回弹（44x26 紧凑规格） */
+  .fc-switch input[type="checkbox"]::after {
+    transition:
+      transform var(--fc-duration-droplet) var(--fc-ease-droplet),
+      width var(--fc-duration-fast) var(--fc-ease-push),
+      height var(--fc-duration-fast) var(--fc-ease-push),
+      top var(--fc-duration-fast) var(--fc-ease-push),
+      box-shadow var(--fc-duration-fast) var(--fc-ease-standard);
   }
 
-  .fc-switch input[type="checkbox"]::after {
-    transition: transform var(--fc-duration-normal) var(--fc-ease-spring);
+  .fp-pop-switch-row:active .fc-switch input[type="checkbox"]:not(:disabled)::after,
+  .fc-switch input[type="checkbox"]:not(:disabled):active::after {
+    width: 26px;
+    height: 18px;
+    top: 4px;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.28);
+  }
+
+  .fp-pop-switch-row:active .fc-switch input[type="checkbox"]:checked:not(:disabled)::after,
+  .fc-switch input[type="checkbox"]:checked:not(:disabled):active::after {
+    transform: translateX(12px);
+  }
+
+  .fc-chip--ok .fc-chip__dot {
+    animation: fp-pulse 2s ease-in-out infinite;
+  }
+
+  .is-spinning {
+    animation: fp-spin 0.8s linear infinite;
+  }
+
+  .fp-spinner {
+    animation: fp-spin 0.75s linear infinite;
+  }
+
+  .fp-welcome-host:not([hidden]) {
+    animation: fp-view-enter var(--fc-duration-tab) cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .fp-drop-overlay:not([hidden]) .fp-drop-box {
+    animation: fp-pop-in 180ms var(--fc-ease-spring);
   }
 
   .fp-selection-bar {
@@ -1971,13 +2131,49 @@ dialog.fp-drawer-dialog::backdrop {
     animation: fp-toast-up 200ms var(--fc-ease-spring);
   }
 
+  .fp-appearance-popover[popover] {
+    translate: 0 -6px;
+    transition:
+      opacity var(--fc-duration-fast) var(--fc-ease-standard),
+      translate var(--fc-duration-normal) var(--fc-ease-push),
+      display var(--fc-duration-fast) var(--fc-ease-standard),
+      overlay var(--fc-duration-fast) var(--fc-ease-standard);
+    transition-behavior: allow-discrete;
+  }
+
+  .fp-appearance-popover[popover]:popover-open {
+    translate: 0 0;
+  }
+
+  @starting-style {
+    .fp-appearance-popover[popover]:popover-open {
+      translate: 0 -6px;
+    }
+  }
+
   .fp-drawer-panel {
-    transition: transform var(--fc-duration-normal) var(--fc-ease-standard);
+    transform: translateX(-100%);
+    transition: transform var(--fc-duration-normal) var(--fc-ease-push);
   }
 
   dialog.fp-drawer-dialog[open] .fp-drawer-panel {
-    @starting-style {
+    transform: translateX(0);
+  }
+
+  @starting-style {
+    dialog.fp-drawer-dialog[open] .fp-drawer-panel {
       transform: translateX(-100%);
+    }
+  }
+
+  @keyframes fp-view-enter {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
     }
   }
 
@@ -2001,6 +2197,16 @@ dialog.fp-drawer-dialog::backdrop {
       opacity: 1;
       transform: translateX(-50%) translateY(0);
     }
+  }
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .fc-swatch:hover {
+    transform: scale(1.08);
+  }
+
+  .fc-swatch:hover:active {
+    transform: scale(0.94);
   }
 }
 
@@ -2119,11 +2325,17 @@ dialog.fp-drawer-dialog::backdrop {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+  dialog.fp-drawer-dialog,
+  dialog.fp-drawer-dialog::backdrop,
+  .fp-appearance-popover[popover] {
+    transition-duration: 100ms;
+  }
+
+  .fp-welcome-host:not([hidden]),
+  .fp-preview-host:not([hidden]),
+  .fp-error-host:not([hidden]),
+  .fp-loading-overlay:not([hidden]),
+  .fp-drop-overlay:not([hidden]) {
+    animation-duration: 100ms;
   }
 }

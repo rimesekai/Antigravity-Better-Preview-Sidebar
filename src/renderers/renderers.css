@@ -145,12 +145,20 @@
   justify-content: center;
   font-size: 14px;
   line-height: 1;
+  transition:
+    background-color var(--fc-duration-fast) var(--fc-ease-standard),
+    color var(--fc-duration-fast) var(--fc-ease-standard);
 }
 
 .fp-ppt-thumbs-close:hover,
 .fp-pdf-thumbs-close:hover {
   background-color: var(--fc-surface-inset);
   color: var(--fc-on-surface);
+}
+
+.fp-ppt-thumbs-close:active,
+.fp-pdf-thumbs-close:active {
+  background-color: var(--fc-press-overlay);
 }
 
 .fp-ppt-thumbs-list,
@@ -165,7 +173,7 @@
   gap: 8px;
 }
 
-/* 缩略图卡：默认中性 block 填充，选中保持中性底并用主色环 + 实心页码徽章标识 */
+/* 缩略图卡：默认中性 card 填充，仅叠加墨水与选中环，绝不缩放 */
 .fp-ppt-thumb-item,
 .fp-pdf-thumb-item {
   appearance: none;
@@ -180,11 +188,19 @@
   gap: 6px;
   flex: 0 0 auto;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  transition:
+    background-color var(--fc-duration-ink) var(--fc-ease-standard),
+    box-shadow var(--fc-duration-ink) var(--fc-ease-standard);
 }
 
 .fp-ppt-thumb-item:hover,
 .fp-pdf-thumb-item:hover {
   background-color: var(--fc-surface-block);
+}
+
+.fp-ppt-thumb-item:active,
+.fp-pdf-thumb-item:active {
+  background-color: var(--fc-surface-inset);
 }
 
 .fp-ppt-thumb-item.is-active,
@@ -362,7 +378,7 @@
   backdrop-filter: blur(10px);
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--fc-duration-ink) var(--fc-ease-standard);
 }
 
 .fp-pdf-page-box:hover .fp-pdf-page-badge {
@@ -501,10 +517,17 @@
   font-weight: 600;
   cursor: pointer;
   flex: none;
+  transition:
+    background-color var(--fc-duration-fast) var(--fc-ease-standard),
+    color var(--fc-duration-fast) var(--fc-ease-standard);
 }
 
 .fp-html-copy-btn:hover {
   background-color: var(--fc-surface-inset);
+}
+
+.fp-html-copy-btn:active:not(.is-copied) {
+  background-color: color-mix(in srgb, var(--fc-surface-inset) 92%, var(--fc-on-surface));
 }
 
 .fp-html-copy-btn.is-copied {
@@ -981,6 +1004,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
+  transition:
+    background-color var(--fc-duration-fast) var(--fc-ease-standard),
+    color var(--fc-duration-fast) var(--fc-ease-standard);
 }
 
 .fp-excel-sheet-tab:hover:not(.is-active) {
@@ -1045,4 +1071,27 @@
 .fp-pdf-text-layer :is(span, br)::selection {
   color: transparent;
   background: color-mix(in srgb, var(--fc-primary) 34%, transparent);
+}
+
+/* 渲染器内部按钮按压液滴微弹反馈 */
+@media (prefers-reduced-motion: no-preference) {
+  .fp-ppt-thumbs-close,
+  .fp-pdf-thumbs-close,
+  .fp-html-copy-btn,
+  .fp-excel-sheet-tab {
+    transition:
+      background-color var(--fc-duration-fast) var(--fc-ease-standard),
+      color var(--fc-duration-fast) var(--fc-ease-standard),
+      transform var(--fc-duration-normal) var(--fc-ease-droplet);
+  }
+
+  .fp-ppt-thumbs-close:not(:disabled, [aria-disabled="true"]):active,
+  .fp-pdf-thumbs-close:not(:disabled, [aria-disabled="true"]):active,
+  .fp-html-copy-btn:not(:disabled, [aria-disabled="true"]):active {
+    transform: scale(0.96);
+  }
+
+  .fp-excel-sheet-tab:not(:disabled, [aria-disabled="true"]):active {
+    transform: scale(0.97);
+  }
 }

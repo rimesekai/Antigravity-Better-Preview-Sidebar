@@ -83,8 +83,8 @@
   --fc-divider-subtle: color-mix(in srgb, var(--fc-on-surface) 8%, transparent);
 
   /* 按压与悬停叠加层 (PressSurface: hover 4%, ink 10%) */
-  --fc-hover-overlay: color-mix(in srgb, var(--fc-on-surface) 5%, transparent);
-  --fc-press-overlay: color-mix(in srgb, var(--fc-on-surface) 11%, transparent);
+  --fc-hover-overlay: color-mix(in srgb, var(--fc-on-surface) 4%, transparent);
+  --fc-press-overlay: color-mix(in srgb, var(--fc-on-surface) 10%, transparent);
 
   /* ------------------------------------------------------------------
    * 5. 语义状态色（独立于种子色）
@@ -140,13 +140,19 @@
   --fc-shadow-e2: var(--fc-shadow-e2-light);
 
   /* ------------------------------------------------------------------
-   * 9. 动效曲线与时长
+   * 9. 动效曲线与时长（提炼自 FlClash prism_ui 物理手感规范）
    * ------------------------------------------------------------------ */
-  --fc-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --fc-ease-spring: cubic-bezier(0.22, 1.28, 0.36, 1);
+  --fc-ease-droplet: linear(0.000, 0.031, 0.109, 0.211, 0.324, 0.437, 0.544, 0.640, 0.723, 0.794, 0.852, 0.898, 0.934, 0.961, 0.981, 0.995, 1.005, 1.011, 1.014, 1.015, 1);
+  --fc-ease-push: cubic-bezier(0.12, 0.9, 0.24, 1);
   --fc-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
   --fc-duration-fast: 150ms;
-  --fc-duration-normal: 250ms;
-  --fc-duration-slow: 380ms;
+  --fc-duration-ink: 200ms;
+  --fc-duration-tab: 220ms;
+  --fc-duration-normal: 300ms;
+  --fc-duration-droplet: 420ms;
+  --fc-duration-slow: 460ms;
 
   /* Liquid Glass 液态毛玻璃浮层变量 */
   --fc-glass-bg: color-mix(in srgb, var(--fc-surface-floating) 76%, transparent);
@@ -301,6 +307,13 @@
   --fc-primary-dark: #f4f4f5;
   --fc-on-primary-light: #ffffff;
   --fc-on-primary-dark: #18181b;
+}
+
+/* 不支持 CSS linear() 物理弹簧曲线的旧版内核降级为平滑三次贝塞尔弹簧 */
+@supports not (animation-timing-function: linear(0, 1)) {
+  :root {
+    --fc-ease-droplet: var(--fc-ease-spring);
+  }
 }
 
 /* 不支持 light-dark() 函数的旧版运行环境降级回退 */
