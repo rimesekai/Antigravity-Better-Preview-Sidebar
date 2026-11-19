@@ -1,14 +1,14 @@
 <div align="center">
   <img src="./assets/logo.svg" alt="File Preview Logo" width="88" height="88" />
-  <h1>Antigravity Better Preview Sidebar</h1>
+  <h1>Antigravity File Preview</h1>
   <p>在 Antigravity 桌面端侧边栏（Aux Pane）高保真预览本地文档、表格、音视频与网页文件</p>
 
   <p>
-    <a href="https://github.com/rimesekai/Antigravity-Better-Preview-Sidebar/actions/workflows/ci.yml">
-      <img src="https://github.com/rimesekai/Antigravity-Better-Preview-Sidebar/actions/workflows/ci.yml/badge.svg" alt="CI Status" />
+    <a href="https://github.com/rimesekai/antigravity-file-preview/actions/workflows/ci.yml">
+      <img src="https://github.com/rimesekai/antigravity-file-preview/actions/workflows/ci.yml/badge.svg" alt="CI Status" />
     </a>
-    <a href="https://github.com/rimesekai/Antigravity-Better-Preview-Sidebar/releases">
-      <img src="https://img.shields.io/badge/version-v0.3.0-2563eb.svg" alt="Version v0.3.0" />
+    <a href="https://github.com/rimesekai/antigravity-file-preview/releases">
+      <img src="https://img.shields.io/badge/version-v0.3.2-2563eb.svg" alt="Version v0.3.2" />
     </a>
     <a href="./LICENSE">
       <img src="https://img.shields.io/badge/License-MIT-16a34a.svg" alt="License: MIT" />
@@ -78,8 +78,8 @@
 本仓库已包含可直接运行的预构建产物 `dist/`。克隆仓库后无需额外安装依赖，直接执行本地安装脚本即可部署到全局插件目录 `~/.gemini/config/plugins/file-preview/`：
 
 ```powershell
-git clone https://github.com/rimesekai/Antigravity-Better-Preview-Sidebar.git
-cd Antigravity-Better-Preview-Sidebar
+git clone https://github.com/rimesekai/antigravity-file-preview.git
+cd antigravity-file-preview
 npm.cmd run install:local
 ```
 

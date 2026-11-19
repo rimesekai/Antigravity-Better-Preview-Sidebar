@@ -1,7 +1,7 @@
 {
   "name": "file-preview",
   "displayName": "File Preview",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "High-fidelity local file preview in the Antigravity sidebar for PPT (.pptx), Word (.docx with full-text search), Excel (.xlsx / .xls / .csv / .tsv with multi-sheet switching, formula bar, and merged cells), PDF (.pdf with >20MB HTTP Range streaming), MP4 (.mp4 with >20MB streaming playback), and HTML (.html / .htm), with automatic Chinese/English UI.",
   "logo": "assets/logo.svg",
   "category": "Productivity",
@@ -10,8 +10,8 @@
     "name": "rimesekai",
     "email": "353441533+rimesekai@users.noreply.github.com"
   },
-  "homepage": "https://github.com/rimesekai/Antigravity-Better-Preview-Sidebar",
-  "repository": "https://github.com/rimesekai/Antigravity-Better-Preview-Sidebar",
+  "homepage": "https://github.com/rimesekai/antigravity-file-preview",
+  "repository": "https://github.com/rimesekai/antigravity-file-preview",
   "keywords": [
     "preview",
     "ppt",

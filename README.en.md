@@ -1,14 +1,14 @@
 <div align="center">
   <img src="./assets/logo.svg" alt="File Preview Logo" width="88" height="88" />
-  <h1>Antigravity Better Preview Sidebar</h1>
+  <h1>Antigravity File Preview</h1>
   <p>High-fidelity local preview for PPTX, DOCX, XLSX/CSV, PDF, MP4 (&gt;20MB streaming), and HTML in Antigravity's desktop Aux Pane</p>
 
   <p>
-    <a href="https://github.com/rimesekai/Antigravity-Better-Preview-Sidebar/actions/workflows/ci.yml">
-      <img src="https://github.com/rimesekai/Antigravity-Better-Preview-Sidebar/actions/workflows/ci.yml/badge.svg" alt="CI Status" />
+    <a href="https://github.com/rimesekai/antigravity-file-preview/actions/workflows/ci.yml">
+      <img src="https://github.com/rimesekai/antigravity-file-preview/actions/workflows/ci.yml/badge.svg" alt="CI Status" />
     </a>
-    <a href="https://github.com/rimesekai/Antigravity-Better-Preview-Sidebar/releases">
-      <img src="https://img.shields.io/badge/version-v0.3.0-2563eb.svg" alt="Version v0.3.0" />
+    <a href="https://github.com/rimesekai/antigravity-file-preview/releases">
+      <img src="https://img.shields.io/badge/version-v0.3.2-2563eb.svg" alt="Version v0.3.2" />
     </a>
     <a href="./LICENSE">
       <img src="https://img.shields.io/badge/License-MIT-16a34a.svg" alt="License: MIT" />
@@ -78,8 +78,8 @@
 This repository includes the prebuilt runtime assets in `dist/`. After cloning, you can install directly into `~/.gemini/config/plugins/file-preview/` without installing dependencies or building from scratch:
 
 ```powershell
-git clone https://github.com/rimesekai/Antigravity-Better-Preview-Sidebar.git
-cd Antigravity-Better-Preview-Sidebar
+git clone https://github.com/rimesekai/antigravity-file-preview.git
+cd antigravity-file-preview
 npm.cmd run install:local
 ```
 
