@@ -2399,6 +2399,294 @@ describe('themeSync 外观种子与色板预设测试', () => {
   });
 });
 
+describe('docxCjkLayout 中文字符缩进与行单位段距解析测试', () => {
+  function mkEl(localName, attrs = {}, children = []) {
+    return {
+      localName,
+      nodeType: 1,
+      attributes: Object.entries(attrs).map(([k, v]) => ({ localName: k, value: String(v) })),
+      childNodes: children,
+    };
+  }
+
+  it('parseIndAttributes 与 parseSpacingAttributes 正确处理字符缩进、绝对值优先级与显式归零', async () => {
+    const { parseIndAttributes, parseSpacingAttributes } = await import(
+      '../src/utils/docxCjkLayout.ts'
+    );
+
+    const fromObj = (obj) => (name) => (Object.prototype.hasOwnProperty.call(obj, name) ? obj[name] : null);
+
+    // 纯 firstLineChars（如中文首行缩进 2 字符）
+    assert.deepEqual(parseIndAttributes(fromObj({ firstLineChars: '200' })), {
+      textIndent: { kind: 'chars', value: 2 },
+    });
+
+    // firstLine="0" 同时存在 firstLineChars="200"，应采用 firstLineChars
+    assert.deepEqual(parseIndAttributes(fromObj({ firstLine: '0', firstLineChars: '200' })), {
+      textIndent: { kind: 'chars', value: 2 },
+    });
+
+    // firstLine 非零且 firstLineChars 非零，保留 docx-preview 已处理的绝对值（kind: 'dxa'）
+    assert.deepEqual(parseIndAttributes(fromObj({ firstLine: '480', firstLineChars: '200' })), {
+      textIndent: { kind: 'dxa' },
+    });
+
+    // firstLine 非零且 firstLineChars="0"，不能错误归零
+    assert.deepEqual(parseIndAttributes(fromObj({ firstLine: '420', firstLineChars: '0' })), {
+      textIndent: { kind: 'dxa' },
+    });
+
+    // 仅 firstLineChars="0"，应显式归零以覆盖父样式
+    assert.deepEqual(parseIndAttributes(fromObj({ firstLineChars: '0' })), {
+      textIndent: { kind: 'zero' },
+    });
+
+    // hangingChars 优先生效并带负号；leftChars / rightChars 独立生效
+    assert.deepEqual(
+      parseIndAttributes(
+        fromObj({
+          firstLineChars: '200',
+          hangingChars: '150',
+          leftChars: '200',
+          rightChars: '100',
+        }),
+      ),
+      {
+        textIndent: { kind: 'chars', value: -1.5 },
+        marginStart: { kind: 'chars', value: 2 },
+        marginEnd: { kind: 'chars', value: 1 },
+      },
+    );
+
+    // startChars 优先于 leftChars，endChars 优先于 rightChars
+    assert.deepEqual(
+      parseIndAttributes(
+        fromObj({
+          leftChars: '100',
+          startChars: '300',
+          rightChars: '50',
+          endChars: '250',
+        }),
+      ),
+      {
+        marginStart: { kind: 'chars', value: 3 },
+        marginEnd: { kind: 'chars', value: 2.5 },
+      },
+    );
+
+    // beforeLines / afterLines（含 after="0" 搭配 afterLines="100"）
+    assert.deepEqual(
+      parseSpacingAttributes(fromObj({ before: '0', after: '0', afterLines: '100' })),
+      {
+        marginTop: { kind: 'dxa' },
+        marginBottom: { kind: 'lines', value: 1 },
+      },
+    );
+    assert.deepEqual(
+      parseSpacingAttributes(fromObj({ beforeLines: '50', after: '240', afterLines: '100' })),
+      {
+        marginTop: { kind: 'lines', value: 0.5 },
+        marginBottom: { kind: 'dxa' },
+      },
+    );
+  });
+
+  it('collectDocxCjkLayout 正确同步正文、表格、SDT、样式继承链、编号与 docGrid 并释放 _xmlDocument', async () => {
+    const { collectDocxCjkLayout, DOCX_CJK_PARA_CLASS_PREFIX } = await import(
+      '../src/utils/docxCjkLayout.ts'
+    );
+
+    const stylesRoot = mkEl('styles', {}, [
+      mkEl('docDefaults', {}, [
+        mkEl('rPrDefault', {}, [mkEl('rPr', {}, [mkEl('sz', { val: '22' })])]),
+        mkEl('pPrDefault', {}, [mkEl('pPr', {}, [mkEl('spacing', { after: '200' })])]),
+      ]),
+      mkEl('style', { type: 'paragraph', default: '1', styleId: 'Normal' }, [
+        mkEl('pPr', {}, [mkEl('ind', { firstLineChars: '200' })]),
+        mkEl('rPr', {}, [mkEl('sz', { val: '24' })]),
+      ]),
+      mkEl('style', { type: 'paragraph', styleId: 'Heading1' }, [
+        mkEl('basedOn', { val: 'Normal' }),
+        mkEl('pPr', {}, [mkEl('ind', { firstLineChars: '0' })]),
+      ]),
+      mkEl('style', { type: 'paragraph', styleId: 'LeftOnly' }, [
+        mkEl('basedOn', { val: 'Normal' }),
+        mkEl('pPr', {}, [mkEl('ind', { leftChars: '100' })]),
+      ]),
+    ]);
+
+    const numberingRoot = mkEl('numbering', {}, [
+      mkEl('abstractNum', { abstractNumId: '1' }, [
+        mkEl('lvl', { ilvl: '0' }, [mkEl('pPr', {}, [mkEl('ind', { hangingChars: '200' })])]),
+      ]),
+      mkEl('num', { numId: '5' }, [mkEl('abstractNumId', { val: '1' })]),
+    ]);
+
+    const bodyXml = mkEl('body', {}, [
+      // P0: 无样式名 -> 继承默认 Normal 的 firstLineChars="200"
+      mkEl('p', {}, [mkEl('pPr', {}, [mkEl('spacing', { after: '0', afterLines: '100' })])]),
+      // P1: Heading1 -> 显式 firstLineChars="0" 取消继承
+      mkEl('p', {}, [mkEl('pPr', {}, [mkEl('pStyle', { val: 'Heading1' })])]),
+      // P2: LeftOnly -> 仅覆盖 leftChars="100"，仍继承 Normal 的 firstLineChars="200"
+      mkEl('p', {}, [mkEl('pPr', {}, [mkEl('pStyle', { val: 'LeftOnly' })])]),
+      // P3: 段落显式 dxa firstLine="420" 覆盖 Normal 的 firstLineChars -> 无需补丁
+      mkEl('p', {}, [mkEl('pPr', {}, [mkEl('ind', { firstLine: '420' })])]),
+      // P4: 带列表编号 numId=5 ilvl=0 -> 悬挂缩进 -2 字符
+      mkEl('p', {}, [
+        mkEl('pPr', {}, [
+          mkEl('numPr', {}, [mkEl('ilvl', { val: '0' }), mkEl('numId', { val: '5' })]),
+        ]),
+      ]),
+      // Tbl: 表格单元格内段落使用直接 firstLineChars="200"
+      mkEl('tbl', {}, [
+        mkEl('tr', {}, [
+          mkEl('tc', {}, [mkEl('p', {}, [mkEl('pPr', {}, [mkEl('ind', { firstLineChars: '200' })])])]),
+        ]),
+      ]),
+      // SDT: 展开 sdtContent 内的段落
+      mkEl('sdt', {}, [
+        mkEl('sdtContent', {}, [
+          mkEl('p', {}, [mkEl('pPr', {}, [mkEl('ind', { firstLineChars: '150' })])]),
+        ]),
+      ]),
+      mkEl('sectPr', {}, [mkEl('docGrid', { linePitch: '360' })]),
+    ]);
+
+    const p0 = { type: 'paragraph', children: [] };
+    const p1 = { type: 'paragraph', styleName: 'Heading1', children: [] };
+    const p2 = { type: 'paragraph', styleName: 'LeftOnly', children: [] };
+    const p3 = { type: 'paragraph', children: [] };
+    const p4 = { type: 'paragraph', children: [] };
+    const cellP = { type: 'paragraph', children: [] };
+    const sdtP = { type: 'paragraph', children: [] };
+
+    const stylesPart = { _xmlDocument: { firstElementChild: stylesRoot } };
+    const numberingPart = { _xmlDocument: { firstElementChild: numberingRoot } };
+    const documentPart = {
+      _xmlDocument: { firstElementChild: mkEl('document', {}, [bodyXml]) },
+      body: {
+        children: [
+          p0,
+          p1,
+          p2,
+          p3,
+          p4,
+          { type: 'table', children: [{ type: 'row', children: [{ type: 'cell', children: [cellP] }] }] },
+          sdtP,
+        ],
+      },
+    };
+
+    const mockDoc = {
+      stylesPart,
+      numberingPart,
+      documentPart,
+      parts: [stylesPart, numberingPart, documentPart],
+    };
+
+    const ctx = await collectDocxCjkLayout(mockDoc);
+
+    // 验证 _xmlDocument 已释放
+    assert.equal(stylesPart._xmlDocument, undefined);
+    assert.equal(documentPart._xmlDocument, undefined);
+
+    // P0: 继承 firstLineChars=2 + 自身 afterLines=1 + linePitch=18pt + Normal fallbackFontSizePt=12
+    assert.ok(p0.className?.startsWith(DOCX_CJK_PARA_CLASS_PREFIX));
+    assert.deepEqual(ctx.patches.get(p0.className), {
+      textIndent: { kind: 'chars', value: 2 },
+      marginBottom: { kind: 'lines', value: 1 },
+      fallbackFontSizePt: 12,
+      linePitchPt: 18,
+    });
+
+    // P1: Heading1 显式归零
+    assert.deepEqual(ctx.patches.get(p1.className)?.textIndent, { kind: 'zero' });
+
+    // P2: 同时拥有 Normal 的首行缩进与 LeftOnly 的左缩进
+    assert.deepEqual(ctx.patches.get(p2.className)?.textIndent, { kind: 'chars', value: 2 });
+    assert.deepEqual(ctx.patches.get(p2.className)?.marginStart, { kind: 'chars', value: 1 });
+
+    // P3: 已有非零 dxa 覆盖，不需要打标记
+    assert.equal(p3.className, undefined);
+
+    // P4: 列表悬挂缩进 -2 字符
+    assert.deepEqual(ctx.patches.get(p4.className)?.textIndent, { kind: 'chars', value: -2 });
+
+    // 表格单元格段落与 SDT 段落均正确打标
+    assert.deepEqual(ctx.patches.get(cellP.className)?.textIndent, { kind: 'chars', value: 2 });
+    assert.deepEqual(ctx.patches.get(sdtP.className)?.textIndent, { kind: 'chars', value: 1.5 });
+  });
+
+  it('applyDocxCjkLayout 正确按字号与行距写入样式，跨页续段不重复首行缩进，页眉页脚每页独立应用', async () => {
+    const { applyDocxCjkLayout } = await import('../src/utils/docxCjkLayout.ts');
+
+    const mkDomP = (text, inHeaderFooter = false) => ({
+      textContent: text,
+      style: {},
+      closest: (sel) => (inHeaderFooter && sel.includes('header') ? {} : null),
+      querySelector: () => null,
+    });
+
+    const bodyFirst = mkDomP('第一页开头文字');
+    const bodyContinuation = mkDomP('第二页续行文字');
+    const headerPage1 = mkDomP('页眉', true);
+    const headerPage2 = mkDomP('页眉', true);
+
+    const mockStage = {
+      querySelectorAll: (selector) => {
+        if (selector === 'p.fp-cjk-p-0') return [bodyFirst, bodyContinuation];
+        if (selector === 'p.fp-cjk-p-1') return [headerPage1, headerPage2];
+        return [];
+      },
+    };
+
+    const patches = new Map([
+      [
+        'fp-cjk-p-0',
+        {
+          textIndent: { kind: 'chars', value: 2 },
+          marginStart: { kind: 'chars', value: 1 },
+          marginTop: { kind: 'lines', value: 0.5 },
+          marginBottom: { kind: 'lines', value: 1 },
+          linePitchPt: 18,
+        },
+      ],
+      [
+        'fp-cjk-p-1',
+        {
+          textIndent: { kind: 'chars', value: 2 },
+        },
+      ],
+    ]);
+
+    applyDocxCjkLayout(
+      mockStage,
+      { patches },
+      {
+        ptToPx: 4 / 3,
+        measureCharPx: () => 16, // 12pt = 16px
+      },
+    );
+
+    // 正文首段：有首行缩进 32px、左缩进 16px、段前 12px（0.5 * 24px），无段后
+    assert.equal(bodyFirst.style.textIndent, '32.00px');
+    assert.equal(bodyFirst.style.marginInlineStart, '16.00px');
+    assert.equal(bodyFirst.style.marginTop, '12.00px');
+    assert.equal(bodyFirst.style.marginBottom, undefined);
+
+    // 正文跨页续段：无首行缩进、无段前，但延续左缩进 16px 并保留末片段段后 24px
+    assert.equal(bodyContinuation.style.textIndent, undefined);
+    assert.equal(bodyContinuation.style.marginInlineStart, '16.00px');
+    assert.equal(bodyContinuation.style.marginTop, undefined);
+    assert.equal(bodyContinuation.style.marginBottom, '24.00px');
+
+    // 页眉每页独立应用首行缩进
+    assert.equal(headerPage1.style.textIndent, '32.00px');
+    assert.equal(headerPage2.style.textIndent, '32.00px');
+  });
+});
+
+
 
 
 

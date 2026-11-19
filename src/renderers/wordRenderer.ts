@@ -1,8 +1,12 @@
-import { parseAsync, renderDocument } from 'docx-preview';
+import { parseAsync, renderDocument, type Options as DocxPreviewOptions } from 'docx-preview';
 import type {
   PreviewRenderer,
   PreviewStateInfo,
 } from '../types/preview';
+import {
+  applyDocxCjkLayout,
+  collectDocxCjkLayout,
+} from '../utils/docxCjkLayout';
 import {
   applyHeaderFooterFrameAlignment,
   collectDocxTabStops,
@@ -427,7 +431,7 @@ export function createWordRenderer(): PreviewRenderer {
       scaleLayerEl.style.transform = 'scale(1)';
     }
 
-    const docxOptions = {
+    const docxOptions: Partial<DocxPreviewOptions> & { keepOrigin?: boolean } = {
       inWrapper: true,
       breakPages: true,
       ignoreLastRenderedPageBreak: false,
@@ -436,6 +440,7 @@ export function createWordRenderer(): PreviewRenderer {
       renderFootnotes: true,
       renderEndnotes: true,
       useBase64URL: false,
+      keepOrigin: true,
     };
 
     const doc = await parseAsync(lastBuffer, docxOptions);
@@ -445,6 +450,11 @@ export function createWordRenderer(): PreviewRenderer {
 
     const sectionPageConfigs = preprocessDocxPageFields(doc);
     await applyHeaderFooterFrameAlignment(doc);
+    if (destroyed || gen !== loadGeneration) {
+      return;
+    }
+
+    const cjkLayoutContext = await collectDocxCjkLayout(doc);
     if (destroyed || gen !== loadGeneration) {
       return;
     }
@@ -461,6 +471,7 @@ export function createWordRenderer(): PreviewRenderer {
     }
 
     resolveDocxPageFields(stageEl, sectionPageConfigs);
+    applyDocxCjkLayout(stageEl, cjkLayoutContext);
     recalculateDocxTabStops(stageEl, tabStopContext);
     normalizeDocxMathMl(stageEl);
 

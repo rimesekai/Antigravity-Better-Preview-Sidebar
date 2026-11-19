@@ -1,5 +1,14 @@
 # 更新日志 / Changelog
 
+## v0.3.3 (2026-11-19)
+
+### 修复与优化 / Fixes & Improvements
+- **修复 Word (`.docx`) 中文字符单位缩进与行单位段距丢失问题**：
+  - 针对底层 `docx-preview` 未解析 OOXML `*Chars`（`firstLineChars` / `hangingChars` / `leftChars` / `startChars` / `rightChars` / `endChars`）与 `*Lines`（`beforeLines` / `afterLines`）属性导致的中文文档段落首行缩进丢失问题，新增 `src/utils/docxCjkLayout.ts`；
+  - 完整解析正文、表格单元格、SDT、文本框、页眉/页脚、脚注/尾注、`styles.xml` 样式继承链、`numbering.xml` 编号级别与分节 `docGrid.linePitch` 行高，并在 DOM 挂载后结合各段落实际正文渲染字号精确换算写回 `text-indent`、`margin-inline-start/end` 与 `margin-top/bottom`（兼容绝对值优先级、显式归零覆盖与跨页续段不重复首行缩进）；
+  - 在 `src/renderers/wordRenderer.ts` 中启用 `keepOrigin: true` 并接入 CJK 布局修补（预处理完自动释放 `_xmlDocument` 引用，且置于制表位重算之前）；
+  - 在 `tests/server.test.mjs` 补充 3 项自动化单元测试，总测试用例增至 45 项并全部通过。
+
 ## v0.3.2 (2026-11-19)
 
 ### 修复与优化 / Fixes & Improvements
