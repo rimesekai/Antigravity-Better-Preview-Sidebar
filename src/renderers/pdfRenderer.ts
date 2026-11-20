@@ -20,7 +20,7 @@ const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2.0;
 const RANGE_CHUNK_SIZE = 65536;
 const PAGE_GAP_PX = 16;
-const PAGE_HORIZONTAL_PADDING = 28;
+const PAGE_HORIZONTAL_PADDING = 36;
 const FAR_PAGE_DISTANCE = 4;
 
 const { GlobalWorkerOptions, getDocument, renderTextLayer } = pdfjsLib;
@@ -716,6 +716,7 @@ export function createPdfRenderer(): PreviewRenderer {
       thumbsPanelEl.hidden = !thumbnailsVisible;
     }
     scrollEl.hidden = false;
+    scrollEl.classList.toggle('is-fit-mode', fitMode);
 
     const base1 = pageSizeCache.get(1) ?? defaultPageSize;
     if (fitMode) {
@@ -1165,6 +1166,9 @@ export function createPdfRenderer(): PreviewRenderer {
         return;
       }
 
+      if (scrollEl) {
+        scrollEl.classList.toggle('is-fit-mode', fitMode);
+      }
       if (pdfDoc) {
         updateAllSlotSizes();
         for (const p of visiblePageSet) {

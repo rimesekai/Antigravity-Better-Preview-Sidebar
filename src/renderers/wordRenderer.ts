@@ -15,10 +15,19 @@ import {
   resolveDocxPageFields,
 } from '../utils/docxPageFields';
 import { createDragPanner, type DragPannerController } from '../utils/dragPanner';
+import {
+  computeFitWidthLayout,
+  measureScrollContainerBox,
+  measureVerticalMargins,
+} from '../utils/fitWidthLayout';
 import { tr } from '../utils/i18n';
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2.0;
+const MIN_FIT_ZOOM = 0.2;
+const MAX_FIT_ZOOM = 1.0;
+const FALLBACK_VIEWPORT_PADDING_X = 12;
+const FALLBACK_SIZER_VERTICAL_MARGIN = 38;
 const MAX_WORD_MATCHES = 2000;
 const FAR_SECTION_JUMP = 4;
 const MATHML_NS = 'http://www.w3.org/1998/Math/MathML';
@@ -111,6 +120,14 @@ export function createWordRenderer(): PreviewRenderer {
   let fitMode = true;
   let manualZoom = 1.0;
   let effectiveZoom = 1.0;
+  let observedScrollbarWidth = 0;
+  let lastAppliedWidth = -1;
+  let lastAppliedHeight = -1;
+  let lastAppliedScale = -1;
+  let lastObservedViewportWidth = -1;
+  let lastObservedViewportHeight = -1;
+  let lastObservedScaleLayerWidth = -1;
+  let lastObservedScaleLayerHeight = -1;
   let currentPage = 1;
   let totalPages = 0;
   let lastBuffer: ArrayBuffer | null = null;
@@ -151,6 +168,8 @@ export function createWordRenderer(): PreviewRenderer {
   function updateLayout(): void {
     if (destroyed || !viewportEl || !sizerEl || !scaleLayerEl || !stageEl) return;
 
+    viewportEl.classList.toggle('is-fit-mode', fitMode);
+
     const sections = getPageSections();
     const nextTotal = sections.length > 0 ? sections.length : stageEl.children.length > 0 ? 1 : 0;
     const totalChanged = nextTotal !== totalPages;
@@ -170,22 +189,50 @@ export function createWordRenderer(): PreviewRenderer {
       return;
     }
 
-    const viewportWidth = viewportEl.clientWidth;
+    const box = measureScrollContainerBox(viewportEl, FALLBACK_VIEWPORT_PADDING_X, 0);
     let nextScale = manualZoom;
+    let scaledW = 0;
+    let scaledH = 0;
+
     if (fitMode) {
-      if (viewportWidth <= 0) return;
-      const availableWidth = Math.max(120, viewportWidth - 8);
-      nextScale = Math.min(1.0, Math.max(0.2, availableWidth / rawWidth));
+      if (box.clientWidth <= 0) return;
+      const extraVerticalSpace = measureVerticalMargins(sizerEl, FALLBACK_SIZER_VERTICAL_MARGIN);
+      const fit = computeFitWidthLayout({
+        viewportClientWidth: box.clientWidth,
+        viewportClientHeight: box.clientHeight,
+        viewportOuterWidth: box.outerWidth,
+        viewportOuterHeight: box.outerHeight,
+        paddingX: box.paddingX,
+        paddingY: box.paddingY,
+        extraVerticalSpace,
+        rawWidth,
+        rawHeight,
+        observedScrollbarWidth,
+        minScale: MIN_FIT_ZOOM,
+        maxScale: MAX_FIT_ZOOM,
+      });
+      observedScrollbarWidth = fit.observedScrollbarWidth;
+      nextScale = fit.scale;
+      scaledW = fit.scaledWidth;
+      scaledH = fit.scaledHeight;
     } else {
       nextScale = clamp(manualZoom, MIN_ZOOM, MAX_ZOOM);
+      scaledW = Math.ceil(rawWidth * nextScale);
+      scaledH = Math.ceil(rawHeight * nextScale);
     }
 
-    const scaledW = Math.ceil(rawWidth * nextScale);
-    const scaledH = Math.ceil(rawHeight * nextScale);
-
-    sizerEl.style.width = `${scaledW}px`;
-    sizerEl.style.height = `${scaledH}px`;
-    scaleLayerEl.style.transform = `scale(${nextScale})`;
+    if (
+      scaledW !== lastAppliedWidth ||
+      scaledH !== lastAppliedHeight ||
+      Math.abs(nextScale - lastAppliedScale) > 1e-6
+    ) {
+      sizerEl.style.width = `${scaledW}px`;
+      sizerEl.style.height = `${scaledH}px`;
+      scaleLayerEl.style.transform = `scale(${nextScale})`;
+      lastAppliedWidth = scaledW;
+      lastAppliedHeight = scaledH;
+      lastAppliedScale = nextScale;
+    }
 
     const zoomChanged = Math.abs(nextScale - effectiveZoom) > 0.002;
     effectiveZoom = nextScale;
@@ -430,6 +477,9 @@ export function createWordRenderer(): PreviewRenderer {
     if (scaleLayerEl) {
       scaleLayerEl.style.transform = 'scale(1)';
     }
+    lastAppliedWidth = -1;
+    lastAppliedHeight = -1;
+    lastAppliedScale = -1;
 
     const docxOptions: Partial<DocxPreviewOptions> & { keepOrigin?: boolean } = {
       inWrapper: true,
@@ -543,8 +593,37 @@ export function createWordRenderer(): PreviewRenderer {
       viewportEl.addEventListener('click', dragPanner.handleClickCapture, true);
 
       if (typeof ResizeObserver !== 'undefined') {
-        resizeObserver = new ResizeObserver(() => {
-          scheduleLayout();
+        resizeObserver = new ResizeObserver((entries) => {
+          let hasMeaningfulChange = false;
+          for (const entry of entries) {
+            const target = entry.target as HTMLElement;
+            if (target === viewportEl) {
+              const cr = entry.contentRect;
+              if (
+                lastObservedViewportWidth < 0 ||
+                Math.abs(cr.width - lastObservedViewportWidth) >= 1 ||
+                Math.abs(cr.height - lastObservedViewportHeight) >= 1
+              ) {
+                lastObservedViewportWidth = cr.width;
+                lastObservedViewportHeight = cr.height;
+                hasMeaningfulChange = true;
+              }
+            } else if (target === scaleLayerEl) {
+              const cr = entry.contentRect;
+              if (
+                lastObservedScaleLayerWidth < 0 ||
+                Math.abs(cr.width - lastObservedScaleLayerWidth) >= 1 ||
+                Math.abs(cr.height - lastObservedScaleLayerHeight) >= 1
+              ) {
+                lastObservedScaleLayerWidth = cr.width;
+                lastObservedScaleLayerHeight = cr.height;
+                hasMeaningfulChange = true;
+              }
+            }
+          }
+          if (hasMeaningfulChange) {
+            scheduleLayout();
+          }
         });
         resizeObserver.observe(viewportEl);
         resizeObserver.observe(scaleLayerEl);
@@ -691,6 +770,14 @@ export function createWordRenderer(): PreviewRenderer {
       stageEl = null;
       lastBuffer = null;
       lastMeta = null;
+      observedScrollbarWidth = 0;
+      lastAppliedWidth = -1;
+      lastAppliedHeight = -1;
+      lastAppliedScale = -1;
+      lastObservedViewportWidth = -1;
+      lastObservedViewportHeight = -1;
+      lastObservedScaleLayerWidth = -1;
+      lastObservedScaleLayerHeight = -1;
       totalPages = 0;
       currentPage = 1;
       stateListeners.clear();

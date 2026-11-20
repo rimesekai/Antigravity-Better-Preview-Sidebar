@@ -2684,6 +2684,100 @@ describe('docxCjkLayout 中文字符缩进与行单位段距解析测试', () =>
     assert.equal(headerPage1.style.textIndent, '32.00px');
     assert.equal(headerPage2.style.textIndent, '32.00px');
   });
+
+  it('fitWidthLayout 防震荡计算：精准扣除 padding 与安全边距，高度溢出时自动预留滚动条避免死循环', async () => {
+    const {
+      computeFitWidthLayout,
+      measureScrollContainerBox,
+      measureVerticalMargins,
+      floorScalePrecision,
+      DEFAULT_FALLBACK_SCROLLBAR_WIDTH,
+    } = await import('../src/utils/fitWidthLayout.ts');
+
+    // 1. 容器尺寸度量测试
+    const mockEl = {
+      clientWidth: 400,
+      clientHeight: 500,
+      offsetWidth: 400,
+      offsetHeight: 500,
+    };
+    const box = measureScrollContainerBox(mockEl, 12, 0);
+    assert.equal(box.clientWidth, 400);
+    assert.equal(box.outerWidth, 400);
+    assert.equal(box.paddingX, 12);
+
+    // 2. 无滚动条且高度不溢出：全宽缩放，scaledWidth 严格小于可用内容区，绝不产生水平滚动条
+    const resNoOverflow = computeFitWidthLayout({
+      viewportClientWidth: 400,
+      viewportClientHeight: 600,
+      viewportOuterWidth: 400,
+      viewportOuterHeight: 600,
+      paddingX: 12,
+      paddingY: 0,
+      extraVerticalSpace: 38,
+      rawWidth: 800,
+      rawHeight: 400, // 缩放后高度 ~192px + 38px = 230px < 600px，不溢出
+      observedScrollbarWidth: 0,
+      minScale: 0.2,
+      maxScale: 1.0,
+      horizontalSafetyPx: 4,
+    });
+    // 可用宽 = 400 - 12 - 4 = 384px，rawWidth = 800 => scale = 384/800 = 0.48
+    assert.equal(resNoOverflow.scale, 0.48);
+    assert.equal(resNoOverflow.scaledWidth, 384);
+    assert.equal(resNoOverflow.reservedScrollbarGutter, false);
+    // 容器内宽容纳上限为 400 - 12 = 388px，384px 留有 4px 安全裕量，绝不触发横向滚动条
+    assert.ok(resNoOverflow.scaledWidth <= 400 - 12);
+
+    // 3. 无滚动条但高度显著溢出：自动启用预留滚动条槽位（默认 16px），一步到位计算稳定缩放，杜绝死循环
+    const resOverflow = computeFitWidthLayout({
+      viewportClientWidth: 400,
+      viewportClientHeight: 500,
+      viewportOuterWidth: 400,
+      viewportOuterHeight: 500,
+      paddingX: 12,
+      paddingY: 0,
+      extraVerticalSpace: 38,
+      rawWidth: 800,
+      rawHeight: 2000, // 高度巨大，必然溢出
+      observedScrollbarWidth: 0,
+      minScale: 0.2,
+      maxScale: 1.0,
+      horizontalSafetyPx: 4,
+    });
+    // outerW = 400, 预留滚动条 16px => reservedClientW = 384px
+    // 可用宽 = 384 - 12 (padding) - 4 (safety) = 368px
+    // scale = 368 / 800 = 0.46
+    assert.equal(resOverflow.reservedScrollbarGutter, true);
+    assert.equal(resOverflow.observedScrollbarWidth, DEFAULT_FALLBACK_SCROLLBAR_WIDTH);
+    assert.equal(resOverflow.scale, 0.46);
+    assert.equal(resOverflow.scaledWidth, 368);
+    // 缩放后宽度 368px 加上 12px padding = 380px，严格小于出现滚动条后的 384px 视口，完全不产生水平滚动条
+    assert.ok(resOverflow.scaledWidth <= 400 - DEFAULT_FALLBACK_SCROLLBAR_WIDTH - 12);
+
+    // 4. 当已出现真实纵向滚动条时（outerWidth 400, clientWidth 383，滚动条 17px）
+    const resWithScrollbar = computeFitWidthLayout({
+      viewportClientWidth: 383,
+      viewportClientHeight: 500,
+      viewportOuterWidth: 400,
+      viewportOuterHeight: 500,
+      paddingX: 12,
+      paddingY: 0,
+      extraVerticalSpace: 38,
+      rawWidth: 800,
+      rawHeight: 2000,
+      observedScrollbarWidth: 17,
+      minScale: 0.2,
+      maxScale: 1.0,
+      horizontalSafetyPx: 4,
+    });
+    assert.equal(resWithScrollbar.reservedScrollbarGutter, false);
+    assert.equal(resWithScrollbar.observedScrollbarWidth, 17);
+    // 可用宽 = 383 - 12 - 4 = 367px => scale = 367/800 = 0.4587
+    assert.equal(resWithScrollbar.scale, 0.4587);
+    assert.equal(resWithScrollbar.scaledWidth, 367);
+    assert.ok(resWithScrollbar.scaledWidth <= 383 - 12);
+  });
 });
 
 

@@ -1,5 +1,15 @@
 # 更新日志 / Changelog
 
+## v0.3.4 (2026-11-21)
+
+### 修复与优化 / Fixes & Improvements
+- **修复 Word 与 PDF 适应宽度模式下滚动条临界死循环震荡与残影问题**：
+  - **根因消除**：排查并消除了因水平内边距扣除不足导致的 4px 隐形横向溢出，以及高度溢出时“无滚动条（宽） $\to$ 放大溢出 $\to$ 纵向滚动条出现（窄） $\to$ 重新缩放变小 $\to$ 滚动条消失 $\to$ 再次放大”的高频帧震荡死循环（Layout Thrashing）；
+  - **防震荡计算引擎**：新增 `src/utils/fitWidthLayout.ts`，基于内外盒尺寸度量严格扣除水平内边距与 4px 亚像素安全余量，并在高度将发生垂直溢出时主动预留 16px 滚动槽位一次性精准收敛；
+  - **现代 CSS 槽位稳定化**：在 `.fp-word-viewport` 与 `.fp-pdf-scroll` 引入 `scrollbar-gutter: stable` 保证纵向滚动槽恒定，并在自适应宽度模式（`.is-fit-mode`）下锁定 `overflow-x: hidden` 杜绝横向滚动条闪现；
+  - **ResizeObserver 差异阈值过滤**：记录上次观测的视口与缩放层宽高，仅在尺寸变化 $\ge 1\text{px}$ 时调度重排，阻断无效重绘；
+  - **测试覆盖**：在 `tests/server.test.mjs` 新增防震荡自适应宽度算法单元测试，用例数增至 46 项且全部通过。
+
 ## v0.3.3 (2026-11-19)
 
 ### 修复与优化 / Fixes & Improvements
